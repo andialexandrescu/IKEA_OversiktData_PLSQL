@@ -99,6 +99,82 @@ begin
 end;
 /
 rollback;
+-- lab plsq2
+--e4 lab plsql 2
+--a)
+create or replace type clauze_contract as varray(10) of varchar2(100);
+/ 
+
+create table furnizor_detalii as
+select 
+    id_furnizor,
+    nume,
+    telefon,
+    cast(null as clauze_contract) as clauze
+from furnizor;
+
+begin
+    update furnizor_detalii 
+    set clauze = clauze_contract('Livrare rapida la sediul firmei', 'Nu raspundem in caz de livrare neefectuata')
+    where id_furnizor = 'ADS';
+    
+    update furnizor_detalii 
+    set clauze = clauze_contract('Plata in avans pentru materiale care au in compozitie lemn', 'Transport inclus', 'Garantare calitate materiale') 
+    where id_furnizor = 'OO03';
+    
+    update furnizor_detalii 
+    set clauze = clauze_contract('Pentru o intelegere de parteneriat e nevoie de un contract semnat la sediul nostru')
+    where id_furnizor = '1S';
+    -- restul furnizorilor raman null la clauze_contract
+    commit;
+end;
+/
+
+select * from furnizor_detalii;
+
+declare
+    v_clauze clauze_contract;
+    v_cod_furnizor varchar2(5);
+begin
+    v_cod_furnizor := '&cod';
+    
+    select clauze
+    into v_clauze
+    from furnizor_detalii
+    where id_furnizor = v_cod_furnizor;
+
+    for i in v_clauze.first .. v_clauze.last loop
+        dbms_output.put_line('clauza '||i||': ' || v_clauze(i));
+    end loop;
+end;
+/
+
+drop table furnizor_detalii;
+drop type clauze_contract;
+
+--b)
+create or replace type tip_telefon is table of varchar2(12);
+
+alter table furnizor_detalii-- se adauga campul pt telefoane care e imbricat
+add (telefoane tip_telefon)
+nested table telefoane store as tabel_telefoane;
+
+insert into furnizor_detalii
+values ('G0A1', 'Simona Dureci', '+40741236667', clauze_contract(null), tip_telefon('+40776398888', '+40721654321', '+40772123456'));
+
+update furnizor_detalii
+set telefoane = tip_telefon('+07398765143', '+40755533521')
+where id_furnizor = 'OO03';
+
+commit;
+
+select a.id_furnizor, a.nume, a.telefon as telefon_principal, a.clauze, b.column_value as telefon_suplimentar
+from furnizor_detalii a, table(a.telefoane) b;-- despacheteaza tabelul imbricat a.telefoane in randuri individuale pt fiecare telefon suplimentar existent din lista
+
+drop table furnizor_detalii;
+drop type tip_telefon;
+
+
 
 --new pt a avea un ex7 frumos
 insert into STOC values('DFGTY', '29-MAY-24');
@@ -153,7 +229,9 @@ group by p.id_categorie, c.nume;
 -- create type pentru local in cadrul pachetelor
 create or replace procedure detalii_mobila_categorie
 (
-    v_nume_categ categorie.nume%type
+    var_nume_categ in categorie.nume%type,
+    --  var_rez la nivel de nr de materiale gasite (0, 1, 2 sau 3) si de comenzi in care se afla produsul
+    var_rez in out integer-- numarul de rezultate intoarse, are sens sa fie parametru in out daca as avea mai multe apelari ale procedurii pentru categorii diferite si as vrea sa vad numarul de rezultate din toate categoriile insumate
 )
 is
 -- tablou indexat care retine produsele din fiecare categorie
@@ -189,9 +267,9 @@ begin
     bulk collect into t_piese_mobilier-- numele pieselor de mobilier din categoria selectata
     from piesa_mobilier p
     join categorie c on(c.id_categorie = p.id_categorie)
-    where c.nume = v_nume_categ;
+    where c.nume = var_nume_categ;
     
-    dbms_output.put_line('Categoria '||v_nume_categ||' are urmatoarele piese de mobilier:');
+    dbms_output.put_line('Categoria '||var_nume_categ||' are urmatoarele piese de mobilier:');
     for i in 1..t_piese_mobilier.count loop
         dbms_output.put_line('  '||t_piese_mobilier(i)||' ');
         -- pt fiecare produs ii reprezint dimensiunea si adaug detalii referitoare la primele 3 materiale
@@ -217,12 +295,13 @@ begin
         v_materiale.delete;-- e nevoie sa fie sterse toate elementele, altfel raman materialele de la produsul anterior
         if t_lista_m.count > 0
             then 
-                for j in 1..least(v_materiale.limit, t_piese_mobilier.count) loop-- ma asigur ca nu se intrece dimensiunea maxima a varray-ului
+                for j in 1..least(v_materiale.limit, t_lista_m.count) loop-- ma asigur ca nu se intrece dimensiunea maxima a varray-ului
                     v_materiale.extend;
                     v_materiale(j).material := t_lista_m(j).material;
                     v_materiale(j).q := t_lista_m(j).q;
                 end loop;
         end if;
+        var_rez := var_rez + v_materiale.count;-- nr de materiale dintr-o piesa de mobilier (0, 1, 2 sau 3 maxim)
         dbms_output.put_line('  Detaliile primelor 3 materiale cele mai scumpe (de la furnizor):');
         if v_materiale.count > 0
             then
@@ -240,6 +319,7 @@ begin
         join adauga_comanda ac on(c.id_comanda = ac.id_comanda)
         join piesa_mobilier p on(p.id_produs = ac.id_produs)
         where p.nume = t_piese_mobilier(i);-- coresp
+        var_rez := var_rez + t_comenzi.count;-- nr de comenzi care includ piesa de mobilier (0 sau mai multe)
         dbms_output.put_line('  Comenzi care contin piesa '||lower(t_piese_mobilier(i))||': ');
         if t_comenzi.count > 0
             then
@@ -255,13 +335,87 @@ begin
 
 end;
 /
+declare
+    var_total_rez integer := 0;
 begin
-    detalii_mobila_categorie('Rafturi, dulapuri si unitati de depozitare');
+    detalii_mobila_categorie('Rafturi, dulapuri si unitati de depozitare', var_total_rez);
+    dbms_output.put_line('Totalul rezultatelor la nivel de numar de materiale si comenzi pentru categoria `Rafturi, dulapuri si unitati de depozitare`:');
+    dbms_output.put_line(var_total_rez);
+    detalii_mobila_categorie('Canapele si fotolii', var_total_rez);
+    dbms_output.put_line('Totalul rezultatelor la nivel de numar de materiale si comenzi pentru categoria `Canapele si fotolii`:');
+    dbms_output.put_line(var_total_rez);
 end;
 /
 
+/*verificare
+create or replace procedure produs
+(
+    var_nume_piesa in piesa_mobilier.nume%type,
+    var_rez in out integer
+)
+is    
+-- sectiune productie piesa mobilier
+    type info_productie is record (
+        q produsa_din.unitati%type,
+        material materie_prima.tip_material%type
+    );
+    -- varray cu detaliile de productie (dpdv al materiei prime) (q=unitati, material=tip_material)
+    type lista_materiale is varray(3) of info_productie;
+    v_materiale lista_materiale := lista_materiale();
+    -- tablou indexat cu toate materialele care pot sa fie retrieved
+    type temp_materiale is table of info_productie index by binary_integer;
+    t_lista_m temp_materiale;
+begin
+    dbms_output.put_line('Produsul '||var_nume_piesa||' are urmatoarele materiale:');
+    -- materiale
+    select pd.unitati, m.tip_material
+    bulk collect into t_lista_m
+    from materie_prima m
+    join produsa_din pd on(m.id_material = pd.id_material)
+    join piesa_mobilier p on(p.id_produs = pd.id_produs)
+    where p.nume = var_nume_piesa
+    order by m.pret_unitate desc;
+    for j in 1..t_lista_m.count loop
+        dbms_output.put_line(t_lista_m(j).q||' '||t_lista_m(j).material);
+    end loop;-- arat clar ca pot sa fie mai multe materiale decat 3
+    v_materiale.delete;-- e nevoie sa fie sterse toate elementele, altfel raman materialele de la produsul anterior
+    if t_lista_m.count > 0
+        then 
+            for j in 1..least(v_materiale.limit, t_lista_m.count) loop-- ma asigur ca nu se intrece dimensiunea maxima a varray-ului
+                v_materiale.extend;
+                v_materiale(j).material := t_lista_m(j).material;
+                v_materiale(j).q := t_lista_m(j).q;
+            end loop;
+    end if;
+    var_rez := var_rez + v_materiale.count;
+    dbms_output.put_line('  Detaliile primelor 3 materiale cele mai scumpe (de la furnizor):');
+    if v_materiale.count > 0
+        then
+            for j in 1..v_materiale.count loop
+                dbms_output.put_line('          tip material: '|| v_materiale(j).material||', cantitate: '||v_materiale(j).q);
+            end loop;
+        else
+            dbms_output.put_line('  Produsul nu are specificatii legate de materiale');
+    end if;
 
-/* verificare:
+end;
+/
+declare
+    var_total_rez integer := 0;
+begin
+    produs('EKET', var_total_rez);
+    dbms_output.put_line(var_total_rez);
+    produs('BILLY', var_total_rez);
+    dbms_output.put_line(var_total_rez);
+    produs('KALLAX', var_total_rez);
+    dbms_output.put_line(var_total_rez);
+    produs('FINNBY', var_total_rez);
+    dbms_output.put_line(var_total_rez);
+    produs('BRIMNES', var_total_rez);
+    dbms_output.put_line(var_total_rez);
+end;
+/
+
 select *
 from piesa_mobilier p
 join categorie c on(c.id_categorie=p.id_categorie)
