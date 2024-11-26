@@ -445,6 +445,135 @@ se afla la oferta in anul 2024/ 2021 si sunt valabile in stocul magazinului resp
 create or replace type lista_piese_mobilier as varray(15) of number(6,0);
 /
 show errors
+create or replace type coduri_locatii_table is table of number(6,0);
+/
+show errors
+create or replace procedure magazine_cu_piese_mobilier_la_oferta
+(
+    v_id_piese_mobilier_cautate in lista_piese_mobilier,
+    t_locatii out coduri_locatii_table
+)
+is
+-- cursoarele vor fi pentru magazin si piesa mobilier
+    var_id_produs piesa_mobilier.id_produs%type;
+    var_nume_piesa_mobilier piesa_mobilier.nume%type;
+    -- cursor dinamic
+    type piesa_mobilier_rec is record (
+        id_produs piesa_mobilier.id_produs%type,
+        nume piesa_mobilier.nume%type
+    );
+    type c is ref cursor return piesa_mobilier_rec;
+    c_produse c;
+    
+    type info_magazin_oferta is record (
+        cod_magazin magazin.id_magazin%type,
+        id_stoc stoc.id_stoc%type,
+        marfa_adusa stoc.data_aprovizionare%type,
+        oras adresa.oras%type,
+        locatie adresa.strada%type,
+        oferta_inceput oferta.data_inceput%type,
+        oferta_sfarsit oferta.data_sfarsit%type
+    );
+    var_magazin info_magazin_oferta;
+    -- cursor parametrizat (dependent de cursorul c_produse)
+    cursor c_magazine(id piesa_mobilier.id_produs%type) is
+        select distinct m.id_magazin, s.id_stoc, ap.data_aprovizionare, a.oras, a.strada, o.data_inceput, o.data_sfarsit
+        from piesa_mobilier p
+        join oferta o on(o.id_produs = p.id_produs)
+        join aprovizioneaza ap on(ap.id_produs = p.id_produs)
+        join magazin m on(m.id_magazin = ap.id_magazin)
+        join stoc s on(s.id_stoc = ap.id_stoc and ap.data_aprovizionare = s.data_aprovizionare)
+        join adresa a on(a.cod_postal = m.cod_postal)
+        where ap.id_produs = id
+        and ap.cantitate != 0-- eventual la un trigger cand se adauga in comanda poate deveni 0 (in plus ap.cantitate nu va fi niciodata null)
+        and (to_char(ap.data_aprovizionare, 'YYYY') = 2024 or to_char(ap.data_aprovizionare, 'YYYY') = 2021)
+        and to_char(ap.data_aprovizionare, 'YYYY')=to_char(o.data_inceput, 'YYYY')
+        and s.data_aprovizionare>=o.data_inceput and s.data_aprovizionare<=o.data_sfarsit;
+        
+    piesa_mobilier_gasita_magazin boolean;-- doar pentru o afisare corecta in cazul in care piesa de mobilier nu e in oferta si in stoc la niciun magazin
+    
+    contor integer := 1;
+    cod adresa.cod_postal%type;
+    cod_gasit boolean;
+begin
+    t_locatii := coduri_locatii_table();
+    open c_produse for
+        select id_produs, nume
+        from piesa_mobilier
+        where id_produs in ( select * from table(v_id_piese_mobilier_cautate) );
+        
+        loop
+            fetch c_produse into var_id_produs, var_nume_piesa_mobilier;
+            exit when c_produse%notfound;-- atunci cand select into nu mai returneaza niciun rand
+            
+            piesa_mobilier_gasita_magazin := false;
+            dbms_output.put_line('Piesa de mobilier '||var_nume_piesa_mobilier||' e disponibila la oferta in stoc la magazinele:');
+            -- deschid cursorul parametrizat cu param din primul cursor
+            open c_magazine(var_id_produs);
+            loop
+                fetch c_magazine into var_magazin;
+                exit when c_magazine%notfound;
+                    
+                piesa_mobilier_gasita_magazin := true;
+                dbms_output.put_line('  ANUNT '||to_char(var_magazin.marfa_adusa, 'YYYY'));
+                dbms_output.put_line('      id_magazin: '||var_magazin.cod_magazin||', id_stoc: '||var_magazin.id_stoc||', data aprovizionare: '||var_magazin.marfa_adusa||', locatie: '||var_magazin.oras||' '||var_magazin.locatie);
+                dbms_output.put_line('      data la care a inceput oferta: '||var_magazin.oferta_inceput);
+                dbms_output.put_line('      data la care s-a sfarsit/ se va sfarsi oferta: '||var_magazin.oferta_sfarsit);
+                
+                select cod_postal
+                into cod
+                from adresa
+                where oras = var_magazin.oras and strada = var_magazin.locatie;
+                
+                cod_gasit := false; 
+                for i in 1..t_locatii.count loop
+                    if t_locatii(i) = cod then
+                        cod_gasit := true;-- daca codul exista deja in t_locatii nu mai e adaugat (vreau coduri distincte)
+                        exit;-- break
+                    end if;
+                end loop;
+                if cod_gasit = false-- altfel se adauga la t_locatii
+                    then
+                        t_locatii.extend();
+                        t_locatii(contor) := cod;
+                        contor := contor + 1;
+                end if;
+            end loop;
+                
+            if piesa_mobilier_gasita_magazin = false
+                then 
+                    dbms_output.put_line('Piesa de mobilier '||var_nume_piesa_mobilier||' nu e in oferta si in stoc la niciun magazin');
+            end if;
+                
+            close c_magazine;
+        end loop;
+    
+    close c_produse;
+    
+end;
+/
+declare
+    t_coduri_locatii coduri_locatii_table;
+    v_lista lista_piese_mobilier := lista_piese_mobilier(400002,400010,400007,400012,400011,400007,400003);
+    contor integer;
+begin
+    magazine_cu_piese_mobilier_la_oferta(v_lista, t_coduri_locatii);
+    dbms_output.put_line('Id-urile tuturor locatiilor distincte gasite sunt: ');
+    if t_coduri_locatii.count > 0
+        then
+            for contor in 1..t_coduri_locatii.count loop
+                dbms_output.put_line(t_coduri_locatii(contor));
+            end loop;
+        else
+            dbms_output.put_line('Nu a fost gasita nicio locatie');
+    end if;
+end;
+/
+
+/*
+create or replace type lista_piese_mobilier as varray(15) of number(6,0);
+/
+show errors
 create or replace procedure magazine_cu_piese_mobilier_la_oferta
 (
     v_id_piese_mobilier_cautate lista_piese_mobilier
@@ -527,7 +656,7 @@ begin
 end;
 /
 
-/*select distinct p.id_produs, m.id_magazin, s.id_stoc, ap.data_aprovizionare, a.oras, a.strada, o.data_inceput, o.data_sfarsit
+select distinct p.id_produs, m.id_magazin, s.id_stoc, ap.data_aprovizionare, a.oras, a.strada, o.data_inceput, o.data_sfarsit
 from piesa_mobilier p
 join oferta o on(o.id_produs = p.id_produs)
 join aprovizioneaza ap on(ap.id_produs = p.id_produs)
@@ -547,10 +676,10 @@ procesat comanda (doresc exact un rezultat de acest tip - too_many_rows/no_data_
 */
 create or replace function verifica_procesare_piese_mobilier
 (
-    var_id_comanda_cautata comanda.id_comanda%type
+    var_id_comanda_cautata in comanda.id_comanda%type
 ) return varchar
 is
-    var_msg varchar2(1000);-- ce returneaza functia (detalii comenzi cu cel putin un produs care are materia prima asociata)
+    var_msg varchar2(5000);-- ce returneaza functia (detalii comenzi cu cel putin un produs care are materia prima asociata)
     
     var_id_comanda comanda.id_comanda%type;
     var_nume_agent agent_vanzari.nume%type;
@@ -576,14 +705,14 @@ begin
     from comanda
     where id_comanda = var_id_comanda_cautata;
     
-    dbms_output.put_line('Comanda '||var_id_comanda||' are urmatorele piese de mobilier:');
+    var_msg := var_msg||'Comanda '||var_id_comanda||' are urmatorele piese de mobilier:'||chr(10);
     open c_produse(var_id_comanda);
     loop
         fetch c_produse into var_id_produs, var_nume_piesa_mobilier;
         exit when c_produse%notfound;
         var_piesa_mobilier_material_gasita := true;
         var_msg := var_msg||'   Procesare validata produse...'||chr(10);
-        dbms_output.put_line('      Produsul '||var_nume_piesa_mobilier||' are cel putin un material asociat');
+        var_msg := var_msg||'      Produsul '||var_nume_piesa_mobilier||' are cel putin un material asociat'||chr(10);
         begin
             select a.nume
             into var_nume_agent
@@ -594,8 +723,7 @@ begin
             
             var_msg := var_msg||'   Procesare validata pentru exact un agent de vanzari care a prelucrat produsul '||var_nume_piesa_mobilier||'...'||chr(10);
             var_msg := var_msg||'       Produsul a fost procesat (intr-o comanda sau mai multe) de un singur angajat pe nume '||var_nume_agent||chr(10);
-            dbms_output.put_line('      Piesa: ' || var_nume_piesa_mobilier || ' - Procesata de: ' || var_nume_agent);
-            dbms_output.put_line(chr(10));
+            var_msg := var_msg||'      Piesa: '||var_nume_piesa_mobilier||' - Procesata de: '||var_nume_agent||chr(10);
         exception
             when no_data_found then
                 var_msg := var_msg||'        Exceptie no_data_found: Nu au fost gasiti angajati care sa fi procesat produsul '||var_nume_piesa_mobilier||chr(10);
@@ -637,42 +765,23 @@ end;
 declare
     v_id comanda.id_comanda%type;
 begin
-    v_id := 1000000000;
-    -- 1000000000 ramane pt a arata exceptia no_materials (produsele 400009 si 400012 nu au asociate materiale)(de mentionat ca are produsul 400009 in comun cu 1000000010 si 1000000026 si produsul 400009 cu 10000000026)
-    dbms_output.put_line(verifica_procesare_piese_mobilier(v_id));
-end;
-/
-declare
-    v_id comanda.id_comanda%type;
-begin
     v_id := 1000000008;
     -- 1000000008 ramane pt ca nu intalneste nicio exceptie (produsul 400002 ENHET care are cel putin o materie asociata face parte dintr-o singura comanda deci e prelucrata de un singur agent)
     dbms_output.put_line(verifica_procesare_piese_mobilier(v_id));
-end;
-/
-declare
-    v_id comanda.id_comanda%type;
-begin
-    v_id := 1;
-    -- no_data_found general deoarece nu exista o zona de memorie a cursorului pentru o comanda inexistenta
+    dbms_output.put_line('');
+    v_id := 1000000000;
+    -- 1000000000 ramane pt a arata exceptia no_materials (produsele 400009 si 400012 nu au asociate materiale)(de mentionat ca are produsul 400009 in comun cu 1000000010 si 1000000026 si produsul 400009 cu 10000000026)
     dbms_output.put_line(verifica_procesare_piese_mobilier(v_id));
-end;
-/
-declare
-    v_id comanda.id_comanda%type;
-begin
+    dbms_output.put_line('');
     v_id := 1000000030;
     -- 1000000030 ramane pentru a arata exceptia no_data_found (are un singur produs 400024 care are material asociat si care nu se mai regaseste in nicio alta comanda in afara de cea curenta deci daca comanda curenta nu e prelucrata de un angajat inseamna ca produsul nu e prelucrat de nimeni)
     dbms_output.put_line(verifica_procesare_piese_mobilier(v_id));
-end;
-/
-declare
-    v_id comanda.id_comanda%type;
-begin
+    dbms_output.put_line('');
     v_id := 1000000026;
     /* 1000000026 ramane pt a arata exceptia too_many_rows (produsul care are cel putin un material asociat 400007 si face parte din comenzile 1000000026 si 1000000016, e prelucrat de angajatii 10000(comanda 1000000026) si 10030(comanda 1000000016))
     de retinut ca la 1000000026 produsul 400008 FINNBY (celalalt care are materie asociata) e in comun cu o alta comanda dar comanda 1000000024 are angajatul null, deci pentru produsul acesta nu va intampina nicio exceptie */
     dbms_output.put_line(verifica_procesare_piese_mobilier(v_id));
+    dbms_output.put_line('');
 end;
 /
 
@@ -772,3 +881,8 @@ join comanda c on(c.id_angajat = a.id_angajat)
 join adauga_comanda ac on(ac.id_comanda = c.id_comanda)
 where ac.id_produs = 400007
 and c.id_comanda = 1000000026;*/
+
+-- ex9
+/* sa se afiseze pentru un magazin dat si o luna data clientii care au plasat comenzi intr-un timp mediu
+la plasarea produselor aprovizionate la magazin in acea luna de cand s-a plasat primul produs 
+(la timestamp-ul cel mai mic) pana la ultimul produs (la timestamp-ul cel mai mare) */
