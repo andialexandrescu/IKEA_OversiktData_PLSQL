@@ -203,6 +203,36 @@ insert into COMANDA values(seq_comanda.nextval, 249.99, '13-MAY-2018', null, 100
 insert into TRANZACTIE values(seq_tranzactie.nextval, 'card', 'aprobata', 1000000030);
 insert into ADAUGA_COMANDA values(400024, 1000000030, 1, '13-MAY-18 07:19:46');
 insert into PRODUSA_DIN values(400024, 5000000021, 2);
+
+--jun comenzi durata > 1h
+insert into COMANDA values(1000000032, 0, '12-JUN-19', null, 10000030, null);
+insert into TRANZACTIE values(1000000033, 'card', 'aprobata', 1000000032);
+insert into ADAUGA_COMANDA values(400015, 1000000032, 3, '12-JUN-19 10:20:09');
+insert into ADAUGA_COMANDA values(400006, 1000000032, 2, '12-JUN-19 12:20:11');
+insert into COMANDA values(1000000034, 0, '09-JUN-20', null, 10000080, null);
+insert into TRANZACTIE values(1000000035, 'card', 'aprobata', 1000000034);
+insert into ADAUGA_COMANDA values(400009, 1000000034, 4, '09-JUN-20 09:40:09');
+insert into ADAUGA_COMANDA values(400021, 1000000034, 1, '09-JUN-20 11:45:12');
+
+--oct 
+insert into COMANDA values(1000000036, 0, '19-OCT-21', null, 10000070, null);
+insert into TRANZACTIE values(1000000037, 'card', 'respinsa', 1000000036);
+insert into ADAUGA_COMANDA values(400014, 1000000036, 1, '19-OCT-21 08:20:09');
+insert into ADAUGA_COMANDA values(400022, 1000000036, 2, '19-OCT-21 12:20:11');
+insert into COMANDA values(1000000038, 0, '12-OCT-20', null, 10000080, null);
+insert into TRANZACTIE values(1000000039, 'card', 'aprobata', 1000000038);
+insert into ADAUGA_COMANDA values(400001, 1000000038, 1, '12-OCT-20 07:20:09');
+insert into ADAUGA_COMANDA values(400023, 1000000038, 1, '12-OCT-20 09:20:11');
+
+insert into COMANDA values(1000000040, 0, '23-OCT-20', null, 10000040, null);
+insert into TRANZACTIE values(1000000041, 'card', 'aprobata', 1000000040);
+insert into ADAUGA_COMANDA values(400019, 1000000040, 1, '23-OCT-20 10:50:12');
+insert into COMANDA values(1000000042, 0, '27-OCT-22', null, 10000050, null);
+insert into TRANZACTIE values(1000000043, 'cash', 'aprobata', 1000000042);
+insert into ADAUGA_COMANDA values(400003, 1000000042, 3, '27-OCT-22 12:27:11');
+insert into COMANDA values(1000000044, 0, '29-OCT-24', null, 10000090, null);
+insert into TRANZACTIE values(1000000045, 'card', 'aprobata', 1000000044);
+insert into ADAUGA_COMANDA values(400021, 1000000044, 1, '29-OCT-24 10:10:50');
 commit;
 --ex6
 /* sa se afiseze detaliile materialelor si a dimensiunilor unui produs pentru fiecare categorie de produse
@@ -487,8 +517,8 @@ is
         where ap.id_produs = id
         and ap.cantitate != 0-- eventual la un trigger cand se adauga in comanda poate deveni 0 (in plus ap.cantitate nu va fi niciodata null)
         and (to_char(ap.data_aprovizionare, 'YYYY') = 2024 or to_char(ap.data_aprovizionare, 'YYYY') = 2021)
-        and to_char(ap.data_aprovizionare, 'YYYY')=to_char(o.data_inceput, 'YYYY')
-        and s.data_aprovizionare>=o.data_inceput and s.data_aprovizionare<=o.data_sfarsit;
+        and to_char(ap.data_aprovizionare, 'YYYY') = to_char(o.data_inceput, 'YYYY')
+        and s.data_aprovizionare >= o.data_inceput and s.data_aprovizionare <= o.data_sfarsit;
         
     piesa_mobilier_gasita_magazin boolean;-- doar pentru o afisare corecta in cazul in care piesa de mobilier nu e in oferta si in stoc la niciun magazin
     
@@ -883,6 +913,335 @@ where ac.id_produs = 400007
 and c.id_comanda = 1000000026;*/
 
 -- ex9
-/* sa se afiseze pentru un magazin dat si o luna data clientii care au plasat comenzi intr-un timp mediu
-la plasarea produselor aprovizionate la magazin in acea luna de cand s-a plasat primul produs 
-(la timestamp-ul cel mai mic) pana la ultimul produs (la timestamp-ul cel mai mare) */
+/* sa se afiseze pentru o medie de pret si o luna data (invalid_month) clientii care au plasat comenzi in mai putin de o ora
+mai mari decat media in luna respectiva (no_order_client_found)
+in plus se vor returna si piesele de mobilier comandate, la nivelul uneia sau mai multor comenzi,
+inclusiv datele despre comanda, aprovizionarea ei si intervalul de timp (de la plasarea primului produs pana la ultimul) */
+
+create or replace procedure durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna
+(
+    prag_pret piesa_mobilier.pret%type,
+    luna char-- format DD-MON-YYYY
+)
+is
+    type lista_luni_valide is varray(12) of char(3);-- maxim 12 luni, de aceea a avut rost sa folosesc si varray
+    v_luni_valide lista_luni_valide := lista_luni_valide();
+    var_luna_gasita boolean := false;
+    
+    type info_clienti_comanda is record (
+        cod_client client.id_client%type,
+        cod_comanda comanda.id_comanda%type,
+        data_achiz comanda.data_achizitie%type,
+        plata tranzactie.modalitate_plata%type,
+        timestamp_primul_produs adauga_comanda.moment_timp%type,
+        timestamp_ultimul_produs adauga_comanda.moment_timp%type,
+        durata_plasare_produse interval day to second
+    );
+    -- doua tablouri indexate cu elemente de tip record
+    type t_clienti_comanda is table of info_clienti_comanda index by binary_integer;
+    t_clienti_prag t_clienti_comanda;
+    t_clienti_durata t_clienti_comanda;
+    t_clienti_prag_durata t_clienti_comanda;-- intersectie prin interclasare
+    i integer := 1;
+    j integer := 1;
+    k integer := 0;
+    cursor c_detalii_prag is
+        select c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata, min(ac.moment_timp), max(ac.moment_timp), (max(ac.moment_timp) - min(ac.moment_timp))
+        from client c
+        join comanda co on(c.id_client = co.id_client)
+        join tranzactie t on(t.id_comanda = co.id_comanda)
+        join adauga_comanda ac on(co.id_comanda = ac.id_comanda)
+        join piesa_mobilier p on(p.id_produs = ac.id_produs)
+        where to_char(co.data_achizitie, 'MON') = luna
+        group by c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata
+        having sum(ac.cantitate * p.pret) > prag_pret
+        order by co.id_comanda;-- trebuie sa fie sortate pentru interclasare
+    cursor c_detalii_durata is
+        select c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata, min(ac.moment_timp), max(ac.moment_timp), (max(ac.moment_timp) - min(ac.moment_timp))
+        from client c
+        join comanda co on(c.id_client = co.id_client)
+        join tranzactie t on(t.id_comanda = co.id_comanda)
+        join adauga_comanda ac on(co.id_comanda = ac.id_comanda)
+        where to_char(co.data_achizitie, 'MON') = luna
+        group by c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata
+        having extract(hour from (max(ac.moment_timp) - min(ac.moment_timp))) = 0
+        order by co.id_comanda;
+    
+    invalid_month exception;
+    no_order_above_price exception;
+    no_order_below_one_hour exception;
+begin
+    select distinct(to_char(data_achizitie, 'MON'))-- ne permitem sa cautam comenzi in luni in care au existat vanzari, altfel nu
+    bulk collect into v_luni_valide
+    from comanda;
+    
+    for i in 1..v_luni_valide.count loop
+        if v_luni_valide(i) = luna
+            then
+                var_luna_gasita := true;
+        end if;
+    end loop;
+    
+    if var_luna_gasita = false
+        then
+            raise invalid_month;
+    end if;
+    
+    dbms_output.put_line('Detalii comenzi cu un pret mai mare ca pragul '||prag_pret||' si clienti, impreuna cu o durata de plasare a produselor sub o ora, in luna '||luna);
+    open c_detalii_prag;
+    fetch c_detalii_prag bulk collect into t_clienti_prag;
+    
+    if t_clienti_prag.count = 0
+        then
+            raise no_order_above_price;
+    end if;
+    
+    /*dbms_output.put_line('t_clienti_prag:');
+    for i in 1..t_clienti_prag.count loop
+        dbms_output.put_line('  Comanda '||t_clienti_prag(i).cod_comanda||' a fost plasata de clientul cu id-ul '||t_clienti_prag(i).cod_client||', fiind asociata tranzactia cu tipul de plata '||t_clienti_prag(i).plata);
+        dbms_output.put_line('      data achizitie: '||t_clienti_prag(i).data_achiz);
+        dbms_output.put_line('      timestamp de inceput (plasarea primului produs): '||t_clienti_prag(i).timestamp_primul_produs||', timestamp de final (plasarea ultimului produs): '||t_clienti_prag(i).timestamp_ultimul_produs);
+        dbms_output.put_line('  Asadar durata plasarii produselor in cos a fost de: '||t_clienti_prag(i).durata_plasare_produse);
+    end loop;*/
+    
+    close c_detalii_prag;
+    
+    open c_detalii_durata;
+    fetch c_detalii_durata bulk collect into t_clienti_durata;
+    
+    if t_clienti_durata.count = 0
+        then
+            raise no_order_below_one_hour;
+    end if;
+    
+    /*dbms_output.put_line('t_clienti_durata:');
+    for i in 1..t_clienti_prag.count loop
+        dbms_output.put_line('  Comanda '||t_clienti_durata(i).cod_comanda||' a fost plasata de clientul cu id-ul '||t_clienti_durata(i).cod_client||', fiind asociata tranzactia cu tipul de plata '||t_clienti_durata(i).plata);
+        dbms_output.put_line('      data achizitie: '||t_clienti_durata(i).data_achiz);
+        dbms_output.put_line('      timestamp de inceput (plasarea primului produs): '||t_clienti_durata(i).timestamp_primul_produs||', timestamp de final (plasarea ultimului produs): '||t_clienti_durata(i).timestamp_ultimul_produs);
+        dbms_output.put_line('  Asadar durata plasarii produselor in cos a fost de: '||t_clienti_durata(i).durata_plasare_produse);
+    end loop;*/
+    
+    close c_detalii_durata;
+    
+    -- alg de intersectie prin interclasare
+    -- sigur exista cazuri in care t_clienti _prag are n elem, in timp ce t_clienti_durata are m
+    while i <= t_clienti_prag.count and j <= t_clienti_durata.count loop
+        if t_clienti_prag(i).cod_comanda = t_clienti_durata(j).cod_comanda
+            then
+                k := k + 1;
+                t_clienti_prag_durata(k) := t_clienti_prag(i);-- conditie de egalitate pt intersectie
+                -- se avanseaza in ambele tablouri
+                i := i + 1;
+                j := j + 1;
+        elsif t_clienti_prag(i).cod_comanda < t_clienti_durata(j).cod_comanda
+            then
+                i := i + 1;
+        else
+            j := j + 1;
+        end if;
+    end loop;
+    
+    if k = 0
+        then
+            raise no_data_found;
+    end if;
+    
+    for i in 1..k loop
+        dbms_output.put_line('  Comanda '||t_clienti_prag_durata(i).cod_comanda||' a fost plasata de clientul cu id-ul '||t_clienti_prag_durata(i).cod_client||', fiind asociata tranzactia cu tipul de plata '||t_clienti_prag_durata(i).plata);
+        dbms_output.put_line('      data achizitie: '||t_clienti_prag_durata(i).data_achiz);
+        dbms_output.put_line('      timestamp de inceput (plasarea primului produs): '||t_clienti_prag_durata(i).timestamp_primul_produs||', timestamp de final (plasarea ultimului produs): '||t_clienti_prag_durata(i).timestamp_ultimul_produs);
+        dbms_output.put_line('  Asadar durata plasarii produselor in cos a fost de: '||t_clienti_prag_durata(i).durata_plasare_produse);
+    end loop;
+
+    
+exception
+    when invalid_month then
+        dbms_output.put_line('Exceptie invalid_month: Nu exista comenzi care sa corespunda lunii '||luna);
+    when no_order_above_price then
+        dbms_output.put_line('Exceptie no_order_above_price: Niciun client nu a plasat nicio comanda cu un pret mai mare decat pragul de '||prag_pret);
+    when no_order_below_one_hour then
+        dbms_output.put_line('Exceptie no_order_below_one_hour: Niciun client nu a plasat nicio comanda avand o durata mai mica decat o ora');
+    when no_data_found then
+        dbms_output.put_line('Exceptie no_data_found: Niciun client nu a plasat nicio comanda cu un pret mai mare decat pragul de '||prag_pret||' si cu o durata mai mica decat o ora');
+    when others then
+        dbms_output.put_line('Exceptie necunoscuta: '||sqlerrm);  
+end;
+/
+begin
+    durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(500, 'MAY');
+    --nicio exceptie
+    dbms_output.put_line('');
+    durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(1000, 'SEP');
+    -- exceptia invalid_month deoarece nu s-a plasat nicio comanda in luna septembrie a oricarui an
+    dbms_output.put_line('');
+    durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(500, 'JUN');
+    -- exceptia no_order_below_one_hour, 3 comenzi in luna iunie care nu respecta proprietatea
+    dbms_output.put_line('');
+    durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(2500, 'FEB');
+    -- exceptia no_order_above_price deoarece cele 2 comenzi (1000000024 si 1000000006) au preturi sub 2500 cu toate ca durata e mai mica decat o ora la ambele
+    dbms_output.put_line('');
+    durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(2300, 'OCT');
+    -- exceptia no_data_found
+    dbms_output.put_line('');
+    
+end;
+/
+
+/*
+int i = 1, j = 1;
+    while(i <= n && j <= m) {
+        if(a[i] == b[j]) {
+            k++;
+            c[k] = a[i]; //sau b[j]
+            i++;
+            j++;
+        } else if(a[i] < b[j]) {
+            i++;
+        } else {
+            j++;
+        }
+    }
+
+select c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata,
+sum(ac.cantitate * p.pret),
+min(ac.moment_timp), max(ac.moment_timp), (max(ac.moment_timp) - min(ac.moment_timp))
+from client c
+join comanda co on(c.id_client = co.id_client)
+join tranzactie t on(t.id_comanda = co.id_comanda)
+join adauga_comanda ac on(co.id_comanda = ac.id_comanda)
+join piesa_mobilier p on(p.id_produs = ac.id_produs)
+where to_char(co.data_achizitie, 'MON') = 'OCT'
+group by c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata
+having sum(ac.cantitate * p.pret) > 2300
+order by co.id_comanda;
+        
+select c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata,
+sum(ac.cantitate * p.pret),
+min(ac.moment_timp), max(ac.moment_timp), (max(ac.moment_timp) - min(ac.moment_timp))
+from client c
+join comanda co on(c.id_client = co.id_client)
+join tranzactie t on(t.id_comanda = co.id_comanda)
+join adauga_comanda ac on(co.id_comanda = ac.id_comanda)
+join piesa_mobilier p on(p.id_produs = ac.id_produs)
+where to_char(co.data_achizitie, 'MON') = 'MAY'
+group by c.id_client, co.id_comanda, co.data_achizitie, t.modalitate_plata
+having extract(hour from (max(ac.moment_timp) - min(ac.moment_timp))) = 0
+order by co.id_comanda;
+
+select co.id_comanda, to_char(co.data_achizitie, 'MON') as luna, sum(ac.cantitate * p.pret) as total_pret_neredus, co.pret, min(ac.moment_timp), max(ac.moment_timp), (max(ac.moment_timp) - min(ac.moment_timp))
+from comanda co
+join adauga_comanda ac on(ac.id_comanda = co.id_comanda)
+join piesa_mobilier p on(p.id_produs = ac.id_produs)
+group by co.id_comanda, co.data_achizitie, co.pret;
+*/
+
+-- trigger = se executa cand un eveniment ar declansa o modificare a bazei de date
+-- trigger pe o comanda = exec o sg data (spre ex pt o comanda insert de mai multe linii/ trigger pe o linie = e executat de cate ori o linie a unei tabele e afectata de evenimentul trigger-ului
+--ex10
+/*pentru un client si un angajat sa plaseze o comanda la cod_postal din adresa
+numai daca pentru tranzactia acelei comenzi modalitatea de plata cand e card sa fie aprobata,
+iar in momentul in care e anulata sa fie streasa comanda impreuna cu tranzactia
+*/
+
+-- logica e buna ca declansatorul sa fie la nivel de instructiune si nu linie pentru fiecare inregistrare
+create or replace trigger sys.trigger_plasare_comanda_plata_aprobata
+    before insert or update of cod_postal on sys.comanda-- momentul cand e stabilit trigger ul e before sa fie inserat ceva in campul cod_postal pt a plasa o comanda spre livrare
+declare
+    var_id_comanda number(10);
+    var_tip_plata char(4);
+    var_status varchar2(12);
+    var_id_client number(8);
+    
+    type info_ang is record (
+        cod_ang agent_vanzari.id_angajat%type,
+        nume agent_vanzari.nume%type,
+        prenume agent_vanzari.prenume%type,
+        cod_magazin magazin.id_magazin%type
+    );
+    var_ang info_ang;
+begin
+    select id_comanda
+    into var_id_comanda
+    from inserted;-- o comanda specifica
+    
+    select id_client
+    into var_id_client
+    from comanda
+    where id_comanda = var_id_comanda;
+
+    select t.modalitate_plata, t.status_plata
+    into var_tip_plata, var_status
+    from tranzactie t
+    where t.id_comanda = var_id_comanda;
+
+    if var_tip_plata = 'card' and var_status = 'anulata'
+        then
+            raise_application_error(-20001, 'Comanda nu poate fi plasata deoarece modalitatea de plata a fost anulata');
+    elsif var_tip_plata = 'card' and var_status = 'in procesare'
+        then
+            select a.id_angajat, a.nume, a.prenume, a.id_magazin
+            into var_ang
+            from comanda co
+            join agent_vanzari a on(a.id_angajat = co.id_angajat)
+            where id_client = var_id_client
+            fetch first 1 rows only;
+            
+            if var_ang is null
+                then
+                    select a.id_angajat, a.nume, a.prenume, a.id_magazin
+                    into var_ang
+                    from comanda c
+                    join agent_vanzari a on(c.id_angajat = a.id_angajat)
+                    group by a.id_angajat, a.nume, a.prenume, a.id_magazin
+                    having count(c.id_comanda) > (  select avg(nr) 
+                                                    from (  select count(co.id_comanda) as nr
+                                                            from comanda co
+                                                            join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+                                                            group by a.id_angajat )
+                                                    )
+                    order by dbms_random.value-- reordonare random (nu vrea sa creez un dezechilibru unethical ca un angajat sa lucreze mai mult decat ceilalti, se trage la sorti)
+                    fetch first 1 rows only;
+            end if;
+            
+            update comanda
+            set id_angajat = var_ang.cod_ang
+            where id_comanda = var_id_comanda;
+            
+            raise_application_error(-20002, 'Comanda '||var_id_comanda||' clientului '||var_id_client||' va putea fi plasata la o adresa imediat dupa ce angajatul '||var_ang.cod_ang||', pe nume '||var_ang.nume||' '||var_ang.prenume||' si care lucreaza la magazinul '||var_ang.cod_magazin||', se ocupa de ea');
+    end if;
+end;
+/
+
+select owner, table_name 
+from all_tables 
+where table_name = 'comanda';
+
+select count(co.id_comanda) as nr
+from comanda co
+join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+group by a.id_angajat;
+
+select a.id_angajat, a.nume, a.prenume, nvl(a.id_magazin, 'ang online') as magazin, c.id_comanda, c.data_achizitie
+from comanda c
+join agent_vanzari a on(c.id_angajat = a.id_angajat)
+order by a.id_angajat, c.data_achizitie;
+
+select avg(nr) 
+from (  select count(co.id_comanda) as nr
+        from comanda co
+        join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+        group by a.id_angajat );
+
+select a.id_angajat, a.nume, a.prenume, nvl(a.id_magazin, 'ang online') as magazin
+from comanda c
+join agent_vanzari a on(c.id_angajat = a.id_angajat)
+group by a.id_angajat, a.nume, a.prenume, a.id_magazin
+having count(c.id_comanda) > (  select avg(nr) 
+                                from (  select count(co.id_comanda) as nr
+                                        from comanda co
+                                        join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+                                        group by a.id_angajat )
+                                )
+order by dbms_random.value;-- reordonare random (nu vrea sa creez un dezechilibru unethical ca un angajat sa lucreze mai mult decat ceilalti, se trage la sorti)
+--fetch first 1 rows only;
