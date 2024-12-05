@@ -174,7 +174,96 @@ from furnizor_detalii a, table(a.telefoane) b;-- despacheteaza tabelul imbricat 
 drop table furnizor_detalii;
 drop type tip_telefon;
 
+--lab3 plsql
+--e6
+-- pentru niste id-uri de materiale specifice, sa se afiseze produsele si furnizorii asociati
+declare
+    v_id_material materie_prima.id_material%type;
+    v_tip_material materie_prima.tip_material%type;
+    cursor c_materiale is
+        select id_material, tip_material
+        from materie_prima
+        where id_material in (5000000009, 5000000033, 5000000018, 5000000000);
+    
+    v_produs piesa_mobilier.nume%type;
+    v_furnizor furnizor.nume%type;
+    cursor c_produse(p_id_material number) is
+        select p.nume as produs, f.nume as furnizor 
+        from piesa_mobilier p
+        join produsa_din pd on(p.id_produs = pd.id_produs)
+        join materie_prima mp on(pd.id_material = mp.id_material)
+        join furnizor f on(mp.id_furnizor = f.id_furnizor)
+        where mp.id_material = p_id_material;
+begin
+    open c_materiale;
+    loop
+        fetch c_materiale into v_id_material, v_tip_material;
+        exit when c_materiale%notfound;
 
+        dbms_output.put_line('Materialul cu id-ul'||v_id_material||' si numele ' || v_tip_material||' are urmatoarele specificatii:');
+
+        open c_produse(v_id_material);
+        loop
+            fetch c_produse into v_produs, v_furnizor;
+            exit when c_produse%notfound;
+
+            dbms_output.put_line('Produs: '||v_produs||', furnizor: '||v_furnizor);
+        end loop;
+        close c_produse;
+        
+    end loop;
+    close c_materiale;
+end;
+/
+
+declare
+    v_id_material materie_prima.id_material%type;
+    v_tip_material materie_prima.tip_material%type;
+    cursor c_materiale is
+        select id_material, tip_material
+        from materie_prima
+        where id_material in (5000000009, 5000000033, 5000000018, 5000000000);
+
+    v_produs piesa_mobilier.nume%type;
+    v_furnizor furnizor.nume%type;
+    cursor c_produse(p_id_material number) is
+        select p.nume as produs, f.nume as furnizor 
+        from piesa_mobilier p
+        join produsa_din pd on(p.id_produs = pd.id_produs)
+        join materie_prima mp on(pd.id_material = mp.id_material)
+        join furnizor f on(mp.id_furnizor = f.id_furnizor)
+        where mp.id_material = p_id_material;
+begin
+    for mat in c_materiale loop
+        dbms_output.put_line('Materialul cu id-ul '||mat.id_material||' si numele '||mat.tip_material||' are urmatoarele specificatii:');
+        
+        for prod in c_produse(mat.id_material) loop
+            dbms_output.put_line('Produs: '||prod.produs||', furnizor: '||prod.furnizor);
+        end loop;
+
+    end loop;
+end;
+/
+
+begin
+    for mat in (select id_material, tip_material 
+                from materie_prima 
+                where id_material in (5000000009, 5000000033, 5000000018, 5000000000)) loop
+        dbms_output.put_line('Materialul cu id-ul '||mat.id_material||' si numele '||mat.tip_material||' are urmatoarele specificatii:');
+        
+        for prod in (select p.nume as produs, f.nume as furnizor 
+                     from piesa_mobilier p
+                     join produsa_din pd on p.id_produs = pd.id_produs
+                     join materie_prima mp on pd.id_material = mp.id_material
+                     join furnizor f on mp.id_furnizor = f.id_furnizor
+                     where mp.id_material = mat.id_material) loop
+            
+            dbms_output.put_line('Produs: '||prod.produs||', furnizor: '||prod.furnizor);
+        end loop;
+
+    end loop;
+end;
+/
 
 --new pt a avea un ex7 frumos
 insert into STOC values('DFGTY', '29-MAY-24');
@@ -1054,7 +1143,6 @@ begin
         dbms_output.put_line('  Asadar durata plasarii produselor in cos a fost de: '||t_clienti_prag_durata(i).durata_plasare_produse);
     end loop;
 
-    
 exception
     when invalid_month then
         dbms_output.put_line('Exceptie invalid_month: Nu exista comenzi care sa corespunda lunii '||luna);
@@ -1084,7 +1172,6 @@ begin
     durata_mai_mica_1h_plasare_comenzi_mai_mare_prag_pret_la_luna(2300, 'OCT');
     -- exceptia no_data_found
     dbms_output.put_line('');
-    
 end;
 /
 
@@ -1138,96 +1225,224 @@ group by co.id_comanda, co.data_achizitie, co.pret;
 
 -- trigger = se executa cand un eveniment ar declansa o modificare a bazei de date
 -- trigger pe o comanda = exec o sg data (spre ex pt o comanda insert de mai multe linii/ trigger pe o linie = e executat de cate ori o linie a unei tabele e afectata de evenimentul trigger-ului
+
 --ex10
-/*pentru un client si un angajat sa plaseze o comanda la cod_postal din adresa
-numai daca pentru tranzactia acelei comenzi modalitatea de plata cand e card sa fie aprobata,
-iar in momentul in care e anulata sa fie streasa comanda impreuna cu tranzactia
-*/
+/*sa se afiseze modificarile dupa inserarea unei linii din tabela adauga_comanda (avand conditia sa fie la un moment de timp
+mai mare decat cele introduse in tabela pana in acel moment), care preia id-ul produsului si actualizeaza stocul lui din tabela
+detalii_produse, stiind ca stocul va fi actualizat indifrenet daca exista mai multe stocuri pentru acelasi produs
+(pt a vedea posibilitatea de aprovizionare a tuturor stocurilor care contin produsul respectiv). in plus, se actualizeaza
+si data stocului, deoarece tocmai a fost modificat*/
 
 -- logica e buna ca declansatorul sa fie la nivel de instructiune si nu linie pentru fiecare inregistrare
-create or replace trigger sys.trigger_plasare_comanda_plata_aprobata
-    before insert or update of cod_postal on sys.comanda-- momentul cand e stabilit trigger ul e before sa fie inserat ceva in campul cod_postal pt a plasa o comanda spre livrare
+create or replace trigger modif_stoc
+    after insert on adauga_comanda
 declare
-    var_id_comanda number(10);
-    var_tip_plata char(4);
-    var_status varchar2(12);
-    var_id_client number(8);
+    var_id_produs piesa_mobilier.id_produs%type;
     
-    type info_ang is record (
-        cod_ang agent_vanzari.id_angajat%type,
-        nume agent_vanzari.nume%type,
-        prenume agent_vanzari.prenume%type,
-        cod_magazin magazin.id_magazin%type
-    );
-    var_ang info_ang;
+    var_stoc_curent detalii_produse.cantitate_stoc_produs%type;
+    var_id_stoc detalii_produse.id_stoc%type;
+    
+    var_q adauga_comanda.cantitate%type;
+    var_timp_plasare adauga_comanda.moment_timp%type;
+    
+    var_detalii_stoc number;
+
+    cursor c_cantitate_disp (id piesa_mobilier.id_produs%type) is
+        select cantitate_stoc_produs, id_stoc-- toate produsele si cantitatea lor la nivel de stoc doar
+        from detalii_produse
+        where id_produs = id;
+
 begin
-    select id_comanda
-    into var_id_comanda
-    from inserted;-- o comanda specifica
-    
-    select id_client
-    into var_id_client
-    from comanda
-    where id_comanda = var_id_comanda;
+    select a.id_produs, a.cantitate, a.moment_timp
+    into var_id_produs, var_q, var_timp_plasare
+    from adauga_comanda a
+    join comanda co on(co.id_comanda = a.id_comanda)
+    order by a.moment_timp desc, a.id_produs asc-- nu vor exista doua inregistrari cu acelasi id_produs la aceeasi comanda, deci nu va aparea niciodata too many results fetched
+    fetch first 1 rows only;-- se proceseaza ultimul produs adugat la comanda, la o ultimul moment_timp inregistrat
 
-    select t.modalitate_plata, t.status_plata
-    into var_tip_plata, var_status
-    from tranzactie t
-    where t.id_comanda = var_id_comanda;
+    open c_cantitate_disp(var_id_produs);
+    loop
+        fetch c_cantitate_disp into var_stoc_curent, var_id_stoc;
+        exit when c_cantitate_disp%notfound;
 
-    if var_tip_plata = 'card' and var_status = 'anulata'
-        then
-            raise_application_error(-20001, 'Comanda nu poate fi plasata deoarece modalitatea de plata a fost anulata');
-    elsif var_tip_plata = 'card' and var_status = 'in procesare'
-        then
-            select a.id_angajat, a.nume, a.prenume, a.id_magazin
-            into var_ang
-            from comanda co
-            join agent_vanzari a on(a.id_angajat = co.id_angajat)
-            where id_client = var_id_client
-            fetch first 1 rows only;
-            
-            if var_ang is null
-                then
-                    select a.id_angajat, a.nume, a.prenume, a.id_magazin
-                    into var_ang
-                    from comanda c
-                    join agent_vanzari a on(c.id_angajat = a.id_angajat)
-                    group by a.id_angajat, a.nume, a.prenume, a.id_magazin
-                    having count(c.id_comanda) > (  select avg(nr) 
-                                                    from (  select count(co.id_comanda) as nr
-                                                            from comanda co
-                                                            join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
-                                                            group by a.id_angajat )
-                                                    )
-                    order by dbms_random.value-- reordonare random (nu vrea sa creez un dezechilibru unethical ca un angajat sa lucreze mai mult decat ceilalti, se trage la sorti)
-                    fetch first 1 rows only;
-            end if;
-            
-            update comanda
-            set id_angajat = var_ang.cod_ang
-            where id_comanda = var_id_comanda;
-            
-            raise_application_error(-20002, 'Comanda '||var_id_comanda||' clientului '||var_id_client||' va putea fi plasata la o adresa imediat dupa ce angajatul '||var_ang.cod_ang||', pe nume '||var_ang.nume||' '||var_ang.prenume||' si care lucreaza la magazinul '||var_ang.cod_magazin||', se ocupa de ea');
-    end if;
+        if var_stoc_curent >= var_q
+            then
+                update detalii_produse
+                set cantitate_ceruta_produs = cantitate_ceruta_produs + var_q, cantitate_stoc_produs = cantitate_stoc_produs - var_q, data_ultim_stoc = to_char(var_timp_plasare, 'DD-MON-YYYY')
+                where id_produs = var_id_produs
+                and id_stoc = var_id_stoc;-- modific produsul din stocul respectiv
+        else
+            raise_application_error(-20001, 'Stoc insuficient pentru produsul '||var_id_produs||' in stocul '||var_id_stoc||' cu o capacitate de '||var_stoc_curent);
+        end if;
+
+    end loop;
+    close c_cantitate_disp;
+
 end;
 /
+begin
+    insert into COMANDA values(1000000046, 0, '29-OCT-24', null, 10000090, null);
+    insert into TRANZACTIE values(1000000047, 'card', 'in procesare', 1000000046);
+    --insert into ADAUGA_COMANDA values(400012, 1000000046, 2, '29-OCT-24 10:20:09');
+    --insert into ADAUGA_COMANDA values(400012, 1000000046, 1, '29-OCT-24 10:20:09');
+    insert into ADAUGA_COMANDA values(400009, 1000000046, 4, '29-OCT-24 10:20:09');
+    -- nu se modifica niciuna dintre cele doua inregistrari cu produsul 400009, cu toate ca numai una nu satisface conditia,
+    -- iar cantitate_ceruta_produs ramane la valoarea 10, nemodificandu-se cu 14
+    insert into ADAUGA_COMANDA values(400023, 1000000046, 22, '29-OCT-24 10:25:09');
+    -- se elimina inca 22 de produse cu codul 400023 dintr-un stoc
+end;
+/
+rollback;
+drop trigger modif_stoc;
 
-select owner, table_name 
-from all_tables 
-where table_name = 'comanda';
+/*
+select a.id_produs, a.moment_timp, a.cantitate
+from adauga_comanda a
+join comanda co on(co.id_comanda = a.id_comanda)
+order by a.moment_timp desc, a.id_produs asc;-- nu vor exista doua inregistrari cu acelasi id_produs la aceeasi comanda
+--fetch first 1 rows only;
+    
+select id_produs, sum(cantitate) as total_cantitate, max(data_aprovizionare) as data_ultim_stoc
+from aprovizioneaza
+group by id_produs;
 
-select count(co.id_comanda) as nr
+select id_produs, sum(cantitate) as total_cumparat, max(moment_timp)
+from adauga_comanda 
+where id_produs in (select id_produs from aprovizioneaza)
+group by id_produs;
+*/
+
+--ex11
+/*pentru o comanda care tocmai a fost inserata in baza de date, sa se modifice angajatul care o proceseaza
+numai daca pana in momentul respectiv angajatul are o productivitate mare, adica a procesat mai mult
+de media de comenzi per angajat. astefl, acesta va fi inlocuit cu un angajat care a lucrat mai putin,
+adica cu cineva care a procesat un numar minim de comenzi pana in acel moment (primul angajat de acest tip
+crescator dupa id-ul sau)*/
+
+create or replace trigger update_angajat_trigger
+    for insert on comanda
+    compound trigger
+
+    type info_procesari is record (
+        id_comanda comanda.id_comanda%type,
+        id_angajat comanda.id_angajat%type
+    );
+    type t_procesari is table of info_procesari index by binary_integer;
+    t_proc t_procesari;
+    count_proc integer := 0;
+    var_nr_comenzi_procesate number;
+
+    after each row is-- executata de fiecare data cand un rand e inserat
+    -- insereaza o noua linie in t_proc, retinandu-se info despre procesarile obtinute
+    begin
+        count_proc := count_proc + 1;
+        t_proc(count_proc).id_comanda := :new.id_comanda;
+        t_proc(count_proc).id_angajat := :new.id_angajat;
+    end after each row;
+
+    -- se va face update la angajatii care sunt peste nivelul mediu de productivitate, fiind inlocuiti cu altii
+    after statement is-- executata o sg data dupa ce toate randurile au fost procesate
+        avg_nr_comenzi_procesate number;
+        min_nr_comenzi_procesate number;
+    begin
+        -- motivul pentru care calculez media imediat dupa ce s-a adaugat linia, e ca trebuie actualizata retinand si informatii despre noua linie
+        -- similar pentru min
+        select avg(nr)-- media nr de comenzi procesate de fiecare angajat
+        into avg_nr_comenzi_procesate
+        from (  select count(co.id_comanda) as nr
+                from comanda co
+                join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+                group by a.id_angajat );
+        
+        select min(nr)-- minimul nr de comenzi procesate de fiecare angajat
+        into min_nr_comenzi_procesate
+        from (  select count(co.id_comanda) as nr
+                from comanda co
+                join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
+                group by a.id_angajat );
+
+        for i in 1..t_proc.count loop-- updatez fiecare comanda cu un angajat foarte productiv (a procesat mai mult de avg de comenzi per ang) cu unul care a procesat un numar minim de comenzi pana in acel moment
+            -- nr_comenzi_procesate trebuie sa fie calculat pentru fiecare comanda in parte, in partea de after statement is si nu in after ecah row is (iarasi apare error mutating)
+            select count(co.id_comanda)-- nr de comenzi per angajat
+            into var_nr_comenzi_procesate
+            from comanda co
+            join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null (in cazul in care in clauza where e null, pentru ca nu a fost asignat niciun angajat noii comenzi care nu a fost inca adaugata in baza de date)
+            where co.id_angajat = t_proc(i).id_angajat;
+            
+            if var_nr_comenzi_procesate > avg_nr_comenzi_procesate-- ang productiv
+                then
+                    update comanda
+                    set id_angajat = (  select a.id_angajat
+                                        from comanda co
+                                        join agent_vanzari a on(co.id_angajat = a.id_angajat)
+                                        where a.id_angajat != t_proc(i).id_angajat
+                                        group by a.id_angajat
+                                        having count(co.id_comanda) = min_nr_comenzi_procesate-- selectez primul ang cu un numar mini de comenzi procesate dupa id_angajat
+                                        order by co.id_angajat
+                                        fetch first 1 rows only )
+                    where id_comanda = t_proc(i).id_comanda;-- doar comanda curenta (adica cea care tocmai a fost adaugata in baza de date)
+            end if;
+        end loop;
+    end after statement;
+end;
+/
+begin
+    delete from comanda;-- doar pt a vedea mai bine rezultatele, nu afecteaza count()
+    insert into COMANDA values(1000000048, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 1/1 = 1 dar count pt 15 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000050, 0, '30-NOV-24', 10015, 10000040, null);-- avg = 2/1 = 2 dar count pt 15 = 2 NU e mai mare ca avg
+    insert into COMANDA values(1000000052, 0, '30-NOV-24', 10015, 10000030, null);-- avg = 3/1 = 3 dar count pt 15 = 3 NU e mai mare ca avg
+    insert into COMANDA values(1000000054, 0, '30-NOV-24', 10025, 10000030, null);-- avg = 4/2 = 2 dar count pt 25 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000056, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 5/2 = 2.5 dar count pt 25 = 2 NU e mai mare ca avg
+    insert into COMANDA values(1000000058, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 6/3 = 2 dar count pt 10 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000060, 0, '29-OCT-24', 10005, 10000090, null);-- avg = 7/4 = 1.75 dar count pt 05 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000062, 0, '29-OCT-24', 10020, 10000090, null);-- avg = 8/5 = 1.6 dar count pt 20 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000064, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 9/5 = 1.8 dar count pt 15 = 4 e mai mare ca avg
+    -- are de ales prima optiune dupa ordonare din (05, 10, 20) care au toate count = 1, adica alege angajatul 10005
+    insert into COMANDA values(1000000066, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 10/5 = 2 dar count pt 25 = 3 e mai mare ca avg
+    -- are de ales prima optiune dupa ordonare din (10, 20) care au toate count = 1, adica alege angajatul 10010
+    insert into COMANDA values(1000000068, 0, '29-OCT-24', 10000, 10000090, null);-- avg = 11/6 = 1.8 dar count pt 00 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000070, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 12/7 = 1.7 dar count pt 30 = 1 NU e mai mare ca avg
+    insert into COMANDA values(1000000072, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 13/7 = 1.8 dar count pt 10 = 2 e mai mare ca avg
+    -- are de ales prima optiune dupa ordonare din (00, 20, 30) care au toate count = 1, adica alege angajatul 10000
+    insert into COMANDA values(1000000074, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 14/7 = 2 dar count pt 30 = 2 NU e mai mare ca avg
+    insert into COMANDA values(1000000076, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 15/7 = 2.14 dar count pt 30 = 3 e mai mare ca avg
+    -- are de ales prima optiune dupa ordonare din (20) care au toate count = 1, adica alege angajatul 10020
+    insert into COMANDA values(1000000078, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 16/7 = 2.28 dar count pt 25 = 4 e mai mare ca avg
+    -- are de ales prima optiune dupa ordonare din (00, 10, 20, 30) care au toate count = 2, adica alege angajatul 10000
+end;
+/
+rollback;
+drop trigger update_angajat_trigger;
+
+
+/*
+select a.id_angajat
+from comanda co
+join agent_vanzari a on(co.id_angajat = a.id_angajat)
+--where a.id_angajat != 10025
+group by a.id_angajat
+having count(co.id_comanda) = 3
+order by dbms_random.value;
+--fetch first 1 rows only;
+
+select count(co.id_comanda) as nr-- nr de comenzi per angajat
+from comanda co
+join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null (in cazul in care in clauza where e null, pentru ca nu a fost asignat niciun angajat noii comenzi care nu a fost inca adaugata in baza de date)
+where co.id_angajat is null;
+
+--VS
+
+select count(co.id_comanda) as nr-- nr de comenzi per angajat
+from comanda co
+--join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null (in cazul in care in clauza where e null, pentru ca nu a fost asignat niciun angajat noii comenzi care nu a fost inca adaugata in baza de date)
+where co.id_angajat is null;
+
+select count(co.id_comanda) as nr, a.id_angajat
 from comanda co
 join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
 group by a.id_angajat;
 
-select a.id_angajat, a.nume, a.prenume, nvl(a.id_magazin, 'ang online') as magazin, c.id_comanda, c.data_achizitie
-from comanda c
-join agent_vanzari a on(c.id_angajat = a.id_angajat)
-order by a.id_angajat, c.data_achizitie;
-
-select avg(nr) 
+select avg(nr)
 from (  select count(co.id_comanda) as nr
         from comanda co
         join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
@@ -1243,5 +1458,7 @@ having count(c.id_comanda) > (  select avg(nr)
                                         join agent_vanzari a on(co.id_angajat = a.id_angajat)-- pt a evita comenzile cu ang null
                                         group by a.id_angajat )
                                 )
-order by dbms_random.value;-- reordonare random (nu vrea sa creez un dezechilibru unethical ca un angajat sa lucreze mai mult decat ceilalti, se trage la sorti)
---fetch first 1 rows only;
+order by dbms_random.value;
+--fetch first 1 rows only;*/
+
+--ex12
