@@ -265,6 +265,93 @@ begin
 end;
 /
 
+--lab4 plsql
+--e7
+create or replace function obt_pret
+(
+    v_nume piesa_mobilier.nume%type default 'DJUNGELSKOG'
+) 
+return number is 
+    v_pret piesa_mobilier.pret%type; 
+begin 
+    select pret
+    into v_pret 
+    from piesa_mobilier 
+    where nume = v_nume; 
+
+    return v_pret; 
+exception 
+    when no_data_found then 
+        raise_application_error(-20000, 'Nu exista piese de mobilier cu numele dat'); 
+    when too_many_rows then 
+        raise_application_error(-20001, 'Exista mai multe piese de mobilier cu numele dat'); 
+    when others then 
+        raise_application_error(-20002, 'Alta eroare'); 
+end; 
+/
+begin
+    dbms_output.put_line('Pretul e '||obt_pret);
+end;
+/
+
+create or replace procedure obt_pret_proc
+(
+    v_nume piesa_mobilier.nume%type default 'DJUNGELSKOG'
+)
+is
+    v_pret piesa_mobilier.pret%type; 
+begin 
+    select pret into v_pret 
+    from piesa_mobilier 
+    where nume = v_nume; 
+
+    dbms_output.put_line('Pretul piesei '||v_nume||' este: '||v_pret); 
+exception 
+    when no_data_found then 
+        raise_application_error(-20000, 'Nu exista piese de mobilier cu numele dat'); 
+    when too_many_rows then 
+        raise_application_error(-20001, 'Exista mai multe piese de mobilier cu numele dat'); 
+    when others then 
+        raise_application_error(-20002, 'Alta eroare'); 
+end; 
+/
+begin
+    obt_pret_proc();
+end;
+/
+
+-- lab7 pl sql
+--e7
+set serveroutput on;
+set verify off;
+
+accept p_ani prompt 'Introduceti numarul de ani pentru garantie: ';
+
+declare
+    v_ani number := &p_ani;
+    v_numar number;
+    exceptie exception;
+begin
+    select count(*) into v_numar 
+    from piesa_mobilier 
+    where to_number(regexp_substr(garantie, '[0-9]+')) >= v_ani;-- ma intereseaza doar primul substring numeric (restul poate sa fie doar partea de prelungire a garantiei)
+
+    if v_numar = 0 then
+        raise exceptie;
+    else
+        dbms_output.put_line('Numarul de produse cu garantie mai mare de '||v_ani||' ani este: '||v_numar);
+    end if;
+
+exception
+    when exceptie then
+        dbms_output.put_line('Nu exista produse cu garantia mai mare de '||v_ani||' ani');
+    when others then
+        dbms_output.put_line('A aparut o eroare: '||sqlerrm);
+end;
+/
+set verify on;
+set serveroutput off;
+
 --new pt a avea un ex7 frumos
 insert into STOC values('DFGTY', '29-MAY-24');
 insert into STOC values('OUNDS', '01-JUNE-24');
@@ -1462,3 +1549,292 @@ order by dbms_random.value;
 --fetch first 1 rows only;*/
 
 --ex12
+/* sa se inregistreze intr-un tabel ddl_log toate operatiile efectuate cu succes
+si daca obiectul la care s-a dat create/ drop sau alter sa ii fie afisate coloanele */
+
+create table ddl_log
+(
+    moment timestamp,
+    user_name varchar2(30),
+    ddl_event varchar2(25),
+    object_name varchar2(30)
+);
+create or replace trigger ddl_log_trigger
+    after create or alter or drop on schema
+declare
+    cursor c_col is
+        select column_name, data_type 
+        from user_tab_columns 
+        where table_name = sys.dictionary_obj_name;-- dictionar care retine numele obiectului alterat curent
+        -- nu o sa se vada modificarile imediat dupa ce alterez daca adaug coloane la tabel
+    var_denumiri_coloane varchar2(1000) := '';
+begin
+    if sys.dictionary_obj_type = 'TABLE'
+        then
+            for i in c_col loop-- cursor ciclu
+                var_denumiri_coloane := var_denumiri_coloane||i.column_name||' ('||i.data_type||'), ';
+            end loop;
+            -- in cazul in care adaug o coloana la tabelul asuora caruia lucrez, nu e afisata denumirea ei
+            -- in mesajul dat de mine, doar daca dau describe va fi in regula
+            dbms_output.put_line('Coloanele din tabela '||sys.dictionary_obj_name||' sunt : '||var_denumiri_coloane);
+    end if;
+
+    insert into ddl_log values (systimestamp, sys_context('userenv', 'session_user'), sys.sysevent, sys.dictionary_obj_name);
+end;
+/
+drop trigger ddl_log_trigger;
+drop table ddl_log;
+
+create table test
+(
+    id number primary key,
+    nume varchar2(50),
+    telefon varchar2(12),
+    varsta number
+);
+alter table test add (descriere varchar2(100));
+desc test;
+alter table test drop column id;
+drop table test;
+
+--ex13
+/* se considera un pachet care gestioneaza vanzarile, continand 2 proceduri si 2 functii
+ce folosesc ca variabile globale cursoare si tablouri:
+un tablou va descrie materialele pieselor de mobilier (tip_material, unitati, pret_productie(=pret_unitate*unitati))
+un alt tablou care ofera informatii despre comenzile unor clienti dati care sunt la oferta
+*/
+
+drop package gestionare_vanzari;
+create or replace package gestionare_vanzari as
+    -- 2 tipuri complexe ca variabile globale
+-- tablou indexat cu materialele pieselor de mobilier pentru procedura afiseaza_materiale_produse_la_oferta
+    type info_productie is record (
+        nume_produs piesa_mobilier.nume%type,
+        pret_produs piesa_mobilier.pret%type,
+        pret_productie_produs number,
+        profit number
+    );
+    type temp_materiale is table of info_productie index by binary_integer;
+    t_lista_m temp_materiale;
+
+-- tablou imbricat care ofera informatii despre comenzi aflate la oferta pentru procedura afiseaza_procent_clienti_cu_oferte
+    type info_comenzi_oferta is record (
+        id_client client.id_client%type,
+        id_comanda comanda.id_comanda%type,
+        id_produs piesa_mobilier.id_produs%type,
+        pret_produs piesa_mobilier.pret%type,
+        cantitate adauga_comanda.cantitate%type,
+        pret_neredus_total number,
+        oferta_discount oferta.discount%type,
+        pret_discounted_unitate number,
+        pret_discounted_total number,
+        oferta_inceput oferta.data_inceput%type,
+        oferta_sfarsit oferta.data_sfarsit%type
+    );
+    type lista_comenzi is table of info_comenzi_oferta;
+    t_comenzi lista_comenzi;
+
+    function verifica_oferta_client(p_id_client in client.id_client%type) return boolean;
+    function calcul_total_produse_la_oferta(p_id_comanda in comanda.id_comanda%type) return number;
+    procedure afiseaza_materiale_produse_la_oferta(p_id_comanda in comanda.id_comanda%type);
+    procedure afiseaza_clienti_cu_oferte;
+    
+end gestionare_vanzari;
+/
+create or replace package body gestionare_vanzari as
+
+    function verifica_oferta_client
+    (
+        p_id_client in client.id_client%type
+    ) return boolean
+    is
+        count_comenzi_oferta number;
+    begin
+        select count(distinct ac.id_comanda) -- distinct e necesar altfel se considera o comanda de mai multe ori daca sunt mai multe produse din acea comanda la oferta
+        into count_comenzi_oferta
+        from adauga_comanda ac
+        join comanda co on(ac.id_comanda = co.id_comanda)
+        join oferta o on(ac.id_produs = o.id_produs)
+        where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+        and co.id_client = p_id_client;
+
+        if count_comenzi_oferta > 0
+            then
+                return true;
+        end if;
+        return false;
+    end verifica_oferta_client;
+    
+    function calcul_total_produse_la_oferta
+    (
+        p_id_comanda in comanda.id_comanda%type
+    ) return number
+    is
+        count_produse_oferta number;
+    begin
+        select nvl(sum(a.cantitate), 0)
+        into count_produse_oferta
+        from adauga_comanda a
+        join comanda co on(a.id_comanda = co.id_comanda)
+        join oferta o on(a.id_produs = o.id_produs)
+        where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+        and a.id_comanda = p_id_comanda;
+
+        return count_produse_oferta;
+    end calcul_total_produse_la_oferta;
+    
+    procedure afiseaza_materiale_produse_la_oferta
+    (
+        p_id_comanda in comanda.id_comanda%type
+    )
+    is
+    begin
+        t_lista_m := temp_materiale();
+        dbms_output.put_line('  Ma aflu in afiseaza_materiale_produse_la_oferta');
+        -- verific daca comanda data are sau nu produse la oferta
+        if calcul_total_produse_la_oferta(p_id_comanda) > 0  then
+            -- mereu se reseteaza inainte de a se popula pentru a nu retine materialele dintr-o alta comanda (in cazul in care se apeleaza procedura de mai mult de o data) 
+            t_lista_m.delete;
+
+            select p.nume, p.pret, sum(to_number(m.pret_unitate)*to_number(pd.unitati)), p.pret-sum(to_number(m.pret_unitate)*to_number(pd.unitati))
+            bulk collect into t_lista_m
+            from piesa_mobilier p
+            -- sectiune join pt productie materiale
+            join produsa_din pd on(p.id_produs = pd.id_produs)
+            join materie_prima m on(pd.id_material = m.id_material)
+            -- sectiune join pt oferta
+            join adauga_comanda a on(a.id_produs = p.id_produs)
+            join oferta o on(p.id_produs = o.id_produs)
+            join comanda co on(a.id_comanda = co.id_comanda)
+            where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit-- oferta in vigoare
+            and co.id_comanda = p_id_comanda
+            group by p.nume, p.pret;
+
+            if t_lista_m.count = 0
+                then
+                    dbms_output.put_line('      Comanda '||p_id_comanda||' are produse la oferta, insa acestea nu au materiale asociate');
+            else
+                for i in 1..t_lista_m.count loop
+                    dbms_output.put_line('      Cu toate ca exista produsul '||t_lista_m(i).nume_produs||' la oferta in comanda '||p_id_comanda||', profitul firmei pentru produsul curent este '||t_lista_m(i).profit);
+                    dbms_output.put_line('          nume produs: '||t_lista_m(i).nume_produs);
+                    dbms_output.put_line('          pret unitar produs: '||t_lista_m(i).pret_produs||', pret productie produs: '||t_lista_m(i).pret_productie_produs);
+                    dbms_output.put_line('          profit: '||t_lista_m(i).profit);
+                end loop;
+            end if;
+            
+        else
+            dbms_output.put_line('      Comanda '||p_id_comanda||' nu are produse la oferta');
+        end if;
+    end afiseaza_materiale_produse_la_oferta;
+    
+    procedure afiseaza_clienti_cu_oferte
+    is
+        cursor c_clienti is
+            select id_client from client;
+    begin
+        t_comenzi := lista_comenzi();
+        
+        for rec in c_clienti loop-- cursor ciclu
+            if verifica_oferta_client(rec.id_client)
+                then
+                    dbms_output.put_line('Clientul '||rec.id_client||' a beneficiat de cel putin o oferta');
+                    
+                    select co.id_client, co.id_comanda, p.id_produs, p.pret, a.cantitate, p.pret*a.cantitate, o.discount, round(p.pret*(100-o.discount)/100, 2), round(p.pret*(100-o.discount)/100, 2)*a.cantitate, o.data_inceput, o.data_sfarsit
+                    bulk collect into t_comenzi
+                    from comanda co
+                    join adauga_comanda a on(a.id_comanda = co.id_comanda)
+                    join piesa_mobilier p on(a.id_produs = p.id_produs)
+                    join oferta o on p.id_produs = o.id_produs
+                    where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+                    and co.id_client = rec.id_client
+                    order by co.id_comanda, p.id_produs;
+                    
+                    for i in 1..t_comenzi.count loop
+                        if i = 1 or t_comenzi(i).id_comanda != t_comenzi(i-1).id_comanda-- daca id-ul comenzii s-a schimbat
+                            then
+                                dbms_output.put_line('Ma aflu in afiseaza_clienti_cu_oferte');
+                                dbms_output.put_line('  id client: '||t_comenzi(i).id_client||', id comanda: '||t_comenzi(i).id_comanda||', id produs: '||t_comenzi(i).id_produs);
+                                dbms_output.put_line('  pret produs unitate: '||t_comenzi(i).pret_produs||', pret produs discounted unitate: '||t_comenzi(i).pret_discounted_unitate);
+                                dbms_output.put_line('  cantitate produs in comanda: '||t_comenzi(i).cantitate);
+                                dbms_output.put_line('  pret produs * cantitate: '||t_comenzi(i).pret_neredus_total||', pret produs discounted * cantitate: '||t_comenzi(i).pret_discounted_total);
+                                dbms_output.put_line('  inceput oferta: '||t_comenzi(i).oferta_inceput||', sfarsit oferta: '||t_comenzi(i).oferta_sfarsit);
+                                afiseaza_materiale_produse_la_oferta(t_comenzi(i).id_comanda);-- se apeleaza procedura afiseaza_materiale_produse_la_oferta pentru fiecare comanda distincta
+                                dbms_output.put_line('');
+                        end if;
+                    end loop;
+            else
+                dbms_output.put_line('Clientul '||rec.id_client||' nu a beneficiat de nicio oferta');
+            end if;
+            dbms_output.put_line('');
+            dbms_output.put_line('');
+        end loop;
+        
+    end afiseaza_clienti_cu_oferte;
+    
+end gestionare_vanzari;
+/
+declare
+    total_produse number;
+begin
+    gestionare_vanzari.afiseaza_clienti_cu_oferte;
+    if gestionare_vanzari.verifica_oferta_client(10000090) then
+        dbms_output.put_line('Clientul a beneficiat de cel putin o oferta');
+    else
+        dbms_output.put_line('Clientul nu a beneficiat de nicio oferta');
+    end if;
+    total_produse := gestionare_vanzari.calcul_total_produse_la_oferta(1000000026);
+    dbms_output.put_line(total_produse);
+    gestionare_vanzari.afiseaza_materiale_produse_la_oferta(1000000026);
+end;
+/
+
+/* select count(distinct ac.id_comanda) -- distinct e necesar altfel se considera o comanda de mai multe ori daca sunt mai multe produse din acea comanda la oferta
+from adauga_comanda ac
+join comanda co on(ac.id_comanda = co.id_comanda)
+join oferta o on(ac.id_produs = o.id_produs)
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+and co.id_client = 10000090;
+        
+select c.id_client, count(distinct co.id_comanda) as numar_comenzi-- distinct e necesar altfel se considera o comanda de mai multe ori daca sunt mai multe produse din acea comanda la oferta
+from client c
+join comanda co on(c.id_client = co.id_client)
+join adauga_comanda a on(co.id_comanda = a.id_comanda)
+join piesa_mobilier p on(a.id_produs = p.id_produs)
+join oferta o on(p.id_produs = o.id_produs)
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+group by c.id_client;
+    
+select c.id_client, a.id_comanda, p.id_produs, a.cantitate, o.discount, o.data_inceput, o.data_sfarsit, co.data_achizitie
+from piesa_mobilier p
+join adauga_comanda a on(a.id_produs = p.id_produs)
+join comanda co on(a.id_comanda = co.id_comanda)
+join client c on(c.id_client = co.id_client)
+join oferta o on (o.id_produs = p.id_produs)
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+order by c.id_client, co.id_comanda, p.id_produs;
+
+select nvl(sum(a.cantitate), 0)
+from adauga_comanda a
+join comanda co on(a.id_comanda = co.id_comanda)
+join oferta o on(a.id_produs = o.id_produs)
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+and a.id_comanda = 1000000026;
+
+select p.nume, p.pret, sum(to_number(m.pret_unitate)*to_number(pd.unitati)), p.pret-sum(to_number(m.pret_unitate)*to_number(pd.unitati)) as profit
+from piesa_mobilier p
+join produsa_din pd on(p.id_produs = pd.id_produs)
+join materie_prima m on(pd.id_material = m.id_material)
+join adauga_comanda a on(a.id_produs = p.id_produs)
+join oferta o on(p.id_produs = o.id_produs)
+join comanda co on(a.id_comanda = co.id_comanda)
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit-- oferta in vigoare
+and co.id_comanda = 1000000026
+group by p.nume, p.pret;
+
+select co.id_client, co.id_comanda, p.id_produs, p.nume, p.pret, o.discount, round(p.pret*(100-o.discount)/100, 2)*a.cantitate, o.data_inceput, o.data_sfarsit
+from comanda co
+join adauga_comanda a on(a.id_comanda = co.id_comanda)
+join piesa_mobilier p on(a.id_produs = p.id_produs)
+join oferta o on p.id_produs = o.id_produs
+where co.data_achizitie>=o.data_inceput and co.data_achizitie<=o.data_sfarsit
+and co.id_client = 10000090;*/
