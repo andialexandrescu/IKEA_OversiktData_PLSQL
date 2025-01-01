@@ -1538,18 +1538,17 @@ begin
 
 end;
 /
-begin
-    insert into COMANDA values(1000000046, 0, '29-OCT-24', null, 10000090, null);
-    insert into TRANZACTIE values(1000000047, 'card', 'in procesare', 1000000046);
-    --insert into ADAUGA_COMANDA values(400012, 1000000046, 2, '29-OCT-24 10:20:09');
-    --insert into ADAUGA_COMANDA values(400012, 1000000046, 1, '29-OCT-24 10:20:09');
-    insert into ADAUGA_COMANDA values(400009, 1000000046, 4, '29-OCT-24 10:20:09');
-    -- nu se modifica niciuna dintre cele doua inregistrari cu produsul 400009, cu toate ca numai una nu satisface conditia,
-    -- iar cantitate_ceruta_produs ramane la valoarea 10, nemodificandu-se cu 14
-    insert into ADAUGA_COMANDA values(400023, 1000000046, 22, '29-OCT-24 10:25:09');
-    -- se elimina inca 22 de produse cu codul 400023 dintr-un stoc
-end;
-/
+
+insert into COMANDA values(1000000046, 0, '29-OCT-24', null, 10000090, null);
+insert into TRANZACTIE values(1000000047, 'card', 'in procesare', 1000000046);
+--insert into ADAUGA_COMANDA values(400012, 1000000046, 2, '29-OCT-24 10:20:09');
+--insert into ADAUGA_COMANDA values(400012, 1000000046, 1, '29-OCT-24 10:20:09');
+insert into ADAUGA_COMANDA values(400009, 1000000046, 4, '29-OCT-24 10:20:09');
+-- nu se modifica niciuna dintre cele doua inregistrari cu produsul 400009, cu toate ca numai una nu satisface conditia,
+-- iar cantitate_ceruta_produs ramane la valoarea 10, nemodificandu-se cu 14
+insert into ADAUGA_COMANDA values(400023, 1000000046, 22, '29-OCT-24 10:25:09');
+-- se elimina inca 22 de produse cu codul 400023 dintr-un stoc
+
 rollback;
 drop trigger modif_stoc;
 
@@ -1644,31 +1643,30 @@ create or replace trigger update_angajat_trigger
     end after statement;
 end;
 /
-begin
-    delete from comanda;-- doar pt a vedea mai bine rezultatele, nu afecteaza count()
-    insert into COMANDA values(1000000048, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 1/1 = 1 dar count pt 15 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000050, 0, '30-NOV-24', 10015, 10000040, null);-- avg = 2/1 = 2 dar count pt 15 = 2 NU e mai mare ca avg
-    insert into COMANDA values(1000000052, 0, '30-NOV-24', 10015, 10000030, null);-- avg = 3/1 = 3 dar count pt 15 = 3 NU e mai mare ca avg
-    insert into COMANDA values(1000000054, 0, '30-NOV-24', 10025, 10000030, null);-- avg = 4/2 = 2 dar count pt 25 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000056, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 5/2 = 2.5 dar count pt 25 = 2 NU e mai mare ca avg
-    insert into COMANDA values(1000000058, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 6/3 = 2 dar count pt 10 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000060, 0, '29-OCT-24', 10005, 10000090, null);-- avg = 7/4 = 1.75 dar count pt 05 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000062, 0, '29-OCT-24', 10020, 10000090, null);-- avg = 8/5 = 1.6 dar count pt 20 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000064, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 9/5 = 1.8 dar count pt 15 = 4 e mai mare ca avg
-    -- are de ales prima optiune dupa ordonare din (05, 10, 20) care au toate count = 1, adica alege angajatul 10005
-    insert into COMANDA values(1000000066, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 10/5 = 2 dar count pt 25 = 3 e mai mare ca avg
-    -- are de ales prima optiune dupa ordonare din (10, 20) care au toate count = 1, adica alege angajatul 10010
-    insert into COMANDA values(1000000068, 0, '29-OCT-24', 10000, 10000090, null);-- avg = 11/6 = 1.8 dar count pt 00 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000070, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 12/7 = 1.7 dar count pt 30 = 1 NU e mai mare ca avg
-    insert into COMANDA values(1000000072, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 13/7 = 1.8 dar count pt 10 = 2 e mai mare ca avg
-    -- are de ales prima optiune dupa ordonare din (00, 20, 30) care au toate count = 1, adica alege angajatul 10000
-    insert into COMANDA values(1000000074, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 14/7 = 2 dar count pt 30 = 2 NU e mai mare ca avg
-    insert into COMANDA values(1000000076, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 15/7 = 2.14 dar count pt 30 = 3 e mai mare ca avg
-    -- are de ales prima optiune dupa ordonare din (20) care au toate count = 1, adica alege angajatul 10020
-    insert into COMANDA values(1000000078, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 16/7 = 2.28 dar count pt 25 = 4 e mai mare ca avg
-    -- are de ales prima optiune dupa ordonare din (00, 10, 20, 30) care au toate count = 2, adica alege angajatul 10000
-end;
-/
+
+delete from comanda;-- doar pt a vedea mai bine rezultatele, nu afecteaza count()
+insert into COMANDA values(1000000048, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 1/1 = 1 dar count pt 15 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000050, 0, '30-NOV-24', 10015, 10000040, null);-- avg = 2/1 = 2 dar count pt 15 = 2 NU e mai mare ca avg
+insert into COMANDA values(1000000052, 0, '30-NOV-24', 10015, 10000030, null);-- avg = 3/1 = 3 dar count pt 15 = 3 NU e mai mare ca avg
+insert into COMANDA values(1000000054, 0, '30-NOV-24', 10025, 10000030, null);-- avg = 4/2 = 2 dar count pt 25 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000056, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 5/2 = 2.5 dar count pt 25 = 2 NU e mai mare ca avg
+insert into COMANDA values(1000000058, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 6/3 = 2 dar count pt 10 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000060, 0, '29-OCT-24', 10005, 10000090, null);-- avg = 7/4 = 1.75 dar count pt 05 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000062, 0, '29-OCT-24', 10020, 10000090, null);-- avg = 8/5 = 1.6 dar count pt 20 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000064, 0, '29-OCT-24', 10015, 10000090, null);-- avg = 9/5 = 1.8 dar count pt 15 = 4 e mai mare ca avg
+-- are de ales prima optiune dupa ordonare din (05, 10, 20) care au toate count = 1, adica alege angajatul 10005
+insert into COMANDA values(1000000066, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 10/5 = 2 dar count pt 25 = 3 e mai mare ca avg
+-- are de ales prima optiune dupa ordonare din (10, 20) care au toate count = 1, adica alege angajatul 10010
+insert into COMANDA values(1000000068, 0, '29-OCT-24', 10000, 10000090, null);-- avg = 11/6 = 1.8 dar count pt 00 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000070, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 12/7 = 1.7 dar count pt 30 = 1 NU e mai mare ca avg
+insert into COMANDA values(1000000072, 0, '29-OCT-24', 10010, 10000090, null);-- avg = 13/7 = 1.8 dar count pt 10 = 2 e mai mare ca avg
+-- are de ales prima optiune dupa ordonare din (00, 20, 30) care au toate count = 1, adica alege angajatul 10000
+insert into COMANDA values(1000000074, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 14/7 = 2 dar count pt 30 = 2 NU e mai mare ca avg
+insert into COMANDA values(1000000076, 0, '29-OCT-24', 10030, 10000090, null);-- avg = 15/7 = 2.14 dar count pt 30 = 3 e mai mare ca avg
+-- are de ales prima optiune dupa ordonare din (20) care au toate count = 1, adica alege angajatul 10020
+insert into COMANDA values(1000000078, 0, '29-OCT-24', 10025, 10000090, null);-- avg = 16/7 = 2.28 dar count pt 25 = 4 e mai mare ca avg
+-- are de ales prima optiune dupa ordonare din (00, 10, 20, 30) care au toate count = 2, adica alege angajatul 10000
+
 rollback;
 drop trigger update_angajat_trigger;
 
@@ -1753,8 +1751,6 @@ begin
     insert into ddl_log values (systimestamp, sys_context('userenv', 'session_user'), sys.sysevent, sys.dictionary_obj_name);
 end;
 /
-drop trigger ddl_log_trigger;
-drop table ddl_log;
 
 create table test
 (
@@ -1767,6 +1763,16 @@ alter table test add (descriere varchar2(100));
 desc test;
 alter table test drop column id;
 drop table test;
+create sequence seq_client-- exista cu acest nume o secv deja
+start with 10000000
+increment by 10
+maxvalue 99999999
+nocycle
+nocache;
+alter table aprovizioneaza modify id_stoc null;-- face parte din cheia primara compusa
+
+drop trigger ddl_log_trigger;
+drop table ddl_log;
 
 --ex13
 /* se considera un pachet care gestioneaza vanzarile, continand 2 proceduri si 2 functii
