@@ -413,7 +413,9 @@ commit;
 --ex6
 /* sa se afiseze detaliile materialelor si a dimensiunilor unui produs pentru fiecare categorie de produse
 si fiecare comanda care il contine, fiind afisate doar primele 3 materiale mai scumpe (cumparate de la 
-furnizor) pentru produsele din acea categorie
+furnizor) pentru produsele din acea categorie impreuna cu comenzile din care fac parte piesele de mobilier, 
+in plus va exista un parametru in out care numara cate rezultate au fost intoarse (numar de materiale si comenzi) 
+retinandu-se numarul lui de la apeluri precedente asupra subprogramului.
 => categorie -> piesa_mobilier (record pentru lungime latime inaltime) -> materie_prima (tip_material)
                 piesa_mobilier -> adauga_comanda -> comanda*/
 /*select count(p.id_produs), c.nume
@@ -644,8 +646,10 @@ where p.nume = 'EKET' or p.nume = 'BILLY' or p.nume = 'KALLAX' or p.nume = 'FINN
 */
 
 --ex 7
-/* sa se afiseze numele magazinelor, impreuna cu data aprovizionarii a caror piese de mobilier dintr-o lista data
-se afla la oferta in anul 2024/ 2021 si sunt valabile in stocul magazinului respectiv*/
+/* sa se afiseze numele magazinelor si a stocului impreuna cu data aprovizionarii a caror piese de mobilier 
+dintr-o lista data se afla la oferta in anul 2024/ 2021 si sunt valabile in stocul magazinului respectiv,
+in plus va exista un parametru de out ce retine codurile de adresa ale magazinelor distincte care indeplinesc
+conditia la nivelul tuturor pieselor date ca intrare*/
 
 -- variabila globala
 create or replace type lista_piese_mobilier as varray(15) of number(6,0);
@@ -875,8 +879,8 @@ and s.data_aprovizionare>=o.data_inceput and s.data_aprovizionare<=o.data_sfarsi
 
 --ex 8
 /* sa se afiseze toate piesele de mobilier care au cel putin o materie prima asociata,
-fiind data o lista de comenzi (pot exista comenzi pentru care ar putea sa dea no_data_found la produse
-avand materiale asociate, no_data_found daca exista produse fara materiale asociate in comanda curenta verificata din
+fiind data o lista de comenzi (pot exista comenzi pentru care ar putea sa dea no_materials_associated la produse
+avand materiale asociate, no_materials_associated daca exista produse fara materiale asociate in comanda curenta verificata din
 lista de comenzi) si pentru piesele de mobilier gasite (ca avand materiale asociate in comenzile indicate) sa se afiseze angajatul care a
 procesat comanda (doresc exact un rezultat de acest tip - too_many_rows/no_data_found)
 */
@@ -1089,9 +1093,11 @@ where ac.id_produs = 400007
 and c.id_comanda = 1000000026;*/
 
 -- ex9 nou
-/* sa se afiseze pentru o materie prima piesele de mobilier care o contin
-si pentru o cantitate achizitionata din piesa de mobilier cea mai vanduta sa se afiseze toate comenzile
-(comanda, nr de produse din comanda, client) care o contin pe acea produsa de mobilier selectata */
+/* sa se afiseze pentru o materie prima piesele de mobilier care o contin (no_furniture daca nicio piesa de mobilier nu o contine)
+si pentru o cantitate achizitionata din piesa de mobilier cea mai vanduta sa se afiseze toate comenzile (no_orders daca nu e nicio comanda
+avand cantitatea specificata din produl cel mai bine vandut selectat) care o contin pe acea piesa de mobilier selectata (comanda, nr de produse 
+din comanda, client, inceput plasare produse, final plasare produse, durata plasare produse), in plus va fi exemplificat modul de functionare ale 
+cursoarelor ciclu cu si fara subcereri */
 
 create or replace procedure piese_materie_asociata_durata_maxima_coresp_comanda
 (
@@ -1172,14 +1178,15 @@ begin
             dbms_output.put_line('      Comanda '||com.id_comanda||' (cantitate produs = '||com.cantitate||'): ');
             dbms_output.put_line('      Toate produsele din comanda curenta (care sunt aprovizionate la un magazin): ');-- pot exista produse din comanda care sa nu faca parte dintr-un triplet de forma (id_produs, id_magazin, id_stoc), care nu vor fi afisate
             -- cursor ciclu cu o subcerere
-            for prod in (select p.nume as produs, p.id_produs as id_prod, a.id_stoc as stoc, a.id_magazin as mag
+            for prod in (select p.nume as produs, p.id_produs as id_prod, a.id_stoc as stoc, a.id_magazin as mag, m.telefon as telefon
                      from piesa_mobilier p
                      join adauga_comanda ac on(ac.id_produs = p.id_produs)
                      join comanda co on(co.id_comanda = ac.id_comanda)
                      join aprovizioneaza a on(a.id_produs = p.id_produs)
+                     join magazin m on (a.id_magazin = m.id_magazin)
                      where co.id_comanda = com.id_comanda) loop
             
-                dbms_output.put_line('          Produsul '||prod.produs||' (id: '||prod.id_prod||'), se afla in stocul '||prod.stoc||' si magazinul '||prod.mag);
+                dbms_output.put_line('          Produsul '||prod.produs||' (id: '||prod.id_prod||'), se afla in stocul '||prod.stoc||' si magazinul '||prod.mag||' cu nr de telefon '||prod.telefon);
             end loop;
         end loop;
     end loop;
@@ -1779,6 +1786,16 @@ drop table ddl_log;
 ce folosesc ca variabile globale cursoare si tablouri:
 un tablou va descrie materialele pieselor de mobilier (tip_material, unitati, pret_productie(=pret_unitate*unitati))
 un alt tablou care ofera informatii despre comenzile unor clienti dati care sunt la oferta
+
+verifica_oferta_client verifica daca un client a beneficiat de cel putin o oferta si returneaza true sau false
+calcul_total_produse_la_oferta primeste o comanda si returneaza numarul de produse aflate la oferta
+afiseaza_materiale_produse_la_oferta primeste o comanda si, daca comanda a beneficiat de cel putin o oferta 
+(calcul_total_produse_la_oferta > 0), populeaza t_lista_m si afiseaza rezultatele (se calculeaza un pret unitar 
+de vanzare, pret unitar de productie, profit firma)
+afiseaza_procent_clienti_cu_oferte selecteaza dintr-un cursor care contine toti clientii, populeaza t_comenzi 
+(si afiseaza rezultatele) si se afiseaza din t_comenzi detaliile via afiseaza_materiale_produse_la_oferta 
+(practic logica de a avea date la comun la mai multe functii/ subprograme si de a apela o functie in interiorul 
+alteia) (si se afiseaza rezultatele)
 */
 
 drop package gestionare_vanzari;

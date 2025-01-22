@@ -1,7 +1,7 @@
 --ex 8
 /* sa se afiseze toate piesele de mobilier care au cel putin o materie prima asociata,
-fiind data o lista de comenzi (pot exista comenzi pentru care ar putea sa dea no_data_found la produse
-avand materiale asociate, no_data_found daca exista produse fara materiale asociate in comanda curenta verificata din
+fiind data o lista de comenzi (pot exista comenzi pentru care ar putea sa dea no_materials_associated la produse
+avand materiale asociate, no_materials_associated daca exista produse fara materiale asociate in comanda curenta verificata din
 lista de comenzi) si pentru piesele de mobilier gasite (ca avand materiale asociate in comenzile indicate) sa se afiseze angajatul care a
 procesat comanda (doresc exact un rezultat de acest tip - too_many_rows/no_data_found)
 */
@@ -83,7 +83,7 @@ begin
     
 exception
     when no_data_found then
-    var_msg := 'Exceptie no_data_found: Niciun rezultat intors, no_data_found general';
+        var_msg := 'Exceptie no_data_found: Niciun rezultat intors, no_data_found general';
         return var_msg;
     when no_materials_associated_for_order then
         var_msg := var_msg||'Exceptie no_materials_associated_for_order: Nicio piesa de mobilier din comanda nu are asociata cel putin o materie prima';

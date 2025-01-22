@@ -3,6 +3,16 @@
 ce folosesc ca variabile globale cursoare si tablouri:
 un tablou va descrie materialele pieselor de mobilier (tip_material, unitati, pret_productie(=pret_unitate*unitati))
 un alt tablou care ofera informatii despre comenzile unor clienti dati care sunt la oferta
+
+verifica_oferta_client verifica daca un client a beneficiat de cel putin o oferta si returneaza true sau false
+calcul_total_produse_la_oferta primeste o comanda si returneaza numarul de produse aflate la oferta
+afiseaza_materiale_produse_la_oferta primeste o comanda si, daca comanda a beneficiat de cel putin o oferta 
+(calcul_total_produse_la_oferta > 0), populeaza t_lista_m si afiseaza rezultatele (se calculeaza un pret unitar 
+de vanzare, pret unitar de productie, profit firma)
+afiseaza_procent_clienti_cu_oferte selecteaza dintr-un cursor care contine toti clientii, populeaza t_comenzi 
+(si afiseaza rezultatele) si se afiseaza din t_comenzi detaliile via afiseaza_materiale_produse_la_oferta 
+(practic logica de a avea date la comun la mai multe functii/ subprograme si de a apela o functie in interiorul 
+alteia) (si se afiseaza rezultatele)
 */
 
 drop package gestionare_vanzari;

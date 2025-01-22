@@ -1,6 +1,8 @@
 --ex 7
-/* sa se afiseze numele magazinelor, impreuna cu data aprovizionarii a caror piese de mobilier dintr-o lista data
-se afla la oferta in anul 2024/ 2021 si sunt valabile in stocul magazinului respectiv*/
+/* sa se afiseze numele magazinelor si a stocului impreuna cu data aprovizionarii a caror piese de mobilier 
+dintr-o lista data se afla la oferta in anul 2024/ 2021 si sunt valabile in stocul magazinului respectiv,
+in plus va exista un parametru de out ce retine codurile de adresa ale magazinelor distincte care indeplinesc
+conditia la nivelul tuturor pieselor date ca intrare*/
 
 -- variabila globala
 create or replace type lista_piese_mobilier as varray(15) of number(6,0);

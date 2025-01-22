@@ -1,7 +1,9 @@
 --ex6
 /* sa se afiseze detaliile materialelor si a dimensiunilor unui produs pentru fiecare categorie de produse
 si fiecare comanda care il contine, fiind afisate doar primele 3 materiale mai scumpe (cumparate de la 
-furnizor) pentru produsele din acea categorie
+furnizor) pentru produsele din acea categorie impreuna cu comenzile din care fac parte piesele de mobilier,
+in plus va exista un parametru in out care numara cate rezultate au fost intoarse (numar de materiale si comenzi) 
+retinandu-se numarul lui de la apeluri precedente asupra subprogramului.
 => categorie -> piesa_mobilier (record pentru lungime latime inaltime) -> materie_prima (tip_material)
                 piesa_mobilier -> adauga_comanda -> comanda*/
 /*select count(p.id_produs), c.nume

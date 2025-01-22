@@ -1,7 +1,9 @@
 -- ex9 nou
-/* sa se afiseze pentru o materie prima piesele de mobilier care o contin
-si pentru o cantitate achizitionata din piesa de mobilier cea mai vanduta sa se afiseze toate comenzile
-(comanda, nr de produse din comanda, client) care o contin pe acea produsa de mobilier selectata */
+/* sa se afiseze pentru o materie prima piesele de mobilier care o contin (no_furniture daca nicio piesa de mobilier nu o contine)
+si pentru o cantitate achizitionata din piesa de mobilier cea mai vanduta sa se afiseze toate comenzile (no_orders daca nu e nicio comanda
+avand cantitatea specificata din produl cel mai bine vandut selectat) care o contin pe acea piesa de mobilier selectata (comanda, nr de produse 
+din comanda, client, inceput plasare produse, final plasare produse, durata plasare produse), in plus va fi exemplificat modul de functionare ale 
+cursoarelor ciclu cu si fara subcereri */
 
 create or replace procedure piese_materie_asociata_durata_maxima_coresp_comanda
 (
@@ -82,14 +84,15 @@ begin
             dbms_output.put_line('      Comanda '||com.id_comanda||' (cantitate produs = '||com.cantitate||'): ');
             dbms_output.put_line('      Toate produsele din comanda curenta (care sunt aprovizionate la un magazin): ');-- pot exista produse din comanda care sa nu faca parte dintr-un triplet de forma (id_produs, id_magazin, id_stoc), care nu vor fi afisate
             -- cursor ciclu cu o subcerere
-            for prod in (select p.nume as produs, p.id_produs as id_prod, a.id_stoc as stoc, a.id_magazin as mag
+            for prod in (select p.nume as produs, p.id_produs as id_prod, a.id_stoc as stoc, a.id_magazin as mag, m.telefon as telefon
                      from piesa_mobilier p
                      join adauga_comanda ac on(ac.id_produs = p.id_produs)
                      join comanda co on(co.id_comanda = ac.id_comanda)
                      join aprovizioneaza a on(a.id_produs = p.id_produs)
+                     join magazin m on (a.id_magazin = m.id_magazin)
                      where co.id_comanda = com.id_comanda) loop
             
-                dbms_output.put_line('          Produsul '||prod.produs||' (id: '||prod.id_prod||'), se afla in stocul '||prod.stoc||' si magazinul '||prod.mag);
+                dbms_output.put_line('          Produsul '||prod.produs||' (id: '||prod.id_prod||'), se afla in stocul '||prod.stoc||' si magazinul '||prod.mag||' cu nr de telefon '||prod.telefon);
             end loop;
         end loop;
     end loop;
