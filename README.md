@@ -3,6 +3,11 @@
 **Översikt** (translated from Swedish) = outline, overview [noun]  
 A short description of the main details of a plan, etc.
 
+## Project Summary
+
+It includes the creation and management of a database of a furniture retail store, knowing data about products, offers, orders, customers, sales agents' processing, stock supply and manufacture of parts using materials supplied to the chain.
+Real requirements can be observed, in which data collections, simple and dynamic cursors, procedure or function type subprograms, row-level and command-level triggers (mutating) are illustrated, these validate the sales results in a certain period of time, to which current offers, purchasing behavior, employees' work efficiency can be applied or not, profit in relation to production expenses, etc.
+
 ## Project Overview
 
 This project involves a furniture company that sells pieces of furniture across several stores located in different locations/addresses. These stores can be either showrooms or order-picking centers, meaning they serve both as points of sale and potential delivery addresses for customer orders. This IKEA replica aims to provide a comprehensive overview of the company's operations, focusing on inventory management, customer orders, and the relationships between various entities within the business model.
